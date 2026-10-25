@@ -6,6 +6,7 @@
 #include "sensors.h"
 #include "monitoring.h"
 #include <stdio.h>
+#include "notifications.h"
 
 typedef struct {
     sensor_reading_t reading;
@@ -128,19 +129,44 @@ static void notification_task(void *parameter)
             continue;
         }
 
-        ESP_LOGI("NOTIFY",
-                 "Local event only | State: %s | Simulated moisture: %d%%",
-                 event.state, event.moisture_percent);
+        char message[384];
+        int length;
 
         if (event.reading.dht_result == ESP_OK) {
-            ESP_LOGI("NOTIFY",
-                     "Temperature: %.1f C | Humidity: %.1f %%",
-                     event.reading.temperature,
-                     event.reading.humidity);
+            length = snprintf(
+                message, sizeof(message),
+                "Plant-01\n"
+                "Reason: confirmed moisture state\n"
+                "State: %s\n"
+                "Simulated moisture: %d%%\n"
+                "Temperature: %.1f C\n"
+                "Humidity: %.1f%%",
+                event.state, event.moisture_percent,
+                event.reading.temperature,
+                event.reading.humidity);
         } else {
-            ESP_LOGW("NOTIFY",
-                     "Temperature/humidity unavailable: %s",
-                     esp_err_to_name(event.reading.dht_result));
+            length = snprintf(
+                message, sizeof(message),
+                "Plant-01\n"
+                "Reason: confirmed moisture state\n"
+                "State: %s\n"
+                "Simulated moisture: %d%%\n"
+                "Temperature/humidity: unavailable",
+                event.state, event.moisture_percent);
+        }
+
+        if (length < 0 || length >= (int)sizeof(message)) {
+            ESP_LOGE("NOTIFY", "Message formatting failed");
+            continue;
+        }
+
+        esp_err_t result = notifications_send_slack(message);
+
+        if (result == ESP_OK) {
+            ESP_LOGI("NOTIFY", "Slack request accepted");
+        } else {
+            ESP_LOGW("NOTIFY", "Slack send failed: %s",
+                     esp_err_to_name(result));
         }
     }
 }
@@ -171,7 +197,7 @@ if (notification_queue == NULL) {
     ESP_ERROR_CHECK(result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 
     result = xTaskCreate(
-    notification_task, "notifications", 4096, NULL, 3, NULL);
+    notification_task, "notifications", 8192, NULL, 3, NULL);
 
 ESP_ERROR_CHECK(result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

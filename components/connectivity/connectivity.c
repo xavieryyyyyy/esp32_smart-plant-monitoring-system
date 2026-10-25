@@ -13,9 +13,12 @@
 #include <stdio.h>
 #include "esp_mac.h"
 #include "esp_random.h"
+#include <time.h>
+#include "esp_netif_sntp.h"
 
 #define WIFI_READY_BIT BIT0
 #define PROVISIONING_BIT BIT1
+#define TIME_READY_BIT BIT2
 
 static EventGroupHandle_t connection_events;
 static TaskHandle_t reconnect_task_handle;
@@ -28,6 +31,16 @@ bool connectivity_is_ready(void)
 
     return (xEventGroupGetBits(connection_events)
             & WIFI_READY_BIT) != 0;
+}
+
+bool connectivity_time_is_ready(void)
+{
+    if (connection_events == NULL) {
+        return false;
+    }
+
+    return (xEventGroupGetBits(connection_events)
+            & TIME_READY_BIT) != 0;
 }
 
 static void reconnect_task(void *parameter)
@@ -88,7 +101,13 @@ static void connection_event_handler(
         event_id == IP_EVENT_STA_GOT_IP) {
         xEventGroupSetBits(connection_events, WIFI_READY_BIT);
         xTaskNotifyGive(reconnect_task_handle);
-        ESP_LOGI("WIFI", "Connected and obtained an IP address");
+        
+        esp_err_t time_result = esp_netif_sntp_start();
+
+    if (time_result != ESP_OK) {
+         ESP_LOGW("TIME", "Time service start failed: %s",
+             esp_err_to_name(time_result));
+}
 
     } else if (event_base == WIFI_EVENT &&
                event_id == WIFI_EVENT_STA_START) {
@@ -142,11 +161,31 @@ static void connection_event_handler(
     }
 }
 
+static void time_sync_callback(struct timeval *value)
+{
+    struct tm utc;
+    char timestamp[32];
+
+    gmtime_r(&value->tv_sec, &utc);
+    strftime(timestamp, sizeof(timestamp),
+             "%Y-%m-%d %H:%M:%S UTC", &utc);
+
+    ESP_LOGI("TIME", "Clock synchronized: %s", timestamp);
+    xEventGroupSetBits(connection_events, TIME_READY_BIT);
+}
+
 void connectivity_start(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_sntp_config_t time_config =
+    ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+
+    time_config.start = false;
+    time_config.sync_cb = time_sync_callback;
+
+    ESP_ERROR_CHECK(esp_netif_sntp_init(&time_config));
 
     connection_events = xEventGroupCreate();
     if (connection_events == NULL) {
@@ -222,4 +261,6 @@ void connectivity_start(void)
         ESP_LOGI("PROVISION", "Device name: %s", service_name);
         ESP_LOGI("PROVISION", "Private setup code: %s", setup_code);
     }
+
+    
 }
