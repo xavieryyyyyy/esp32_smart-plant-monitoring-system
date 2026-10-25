@@ -5,8 +5,16 @@
 #include "esp_log.h"
 #include "sensors.h"
 #include "monitoring.h"
+#include <stdio.h>
+
+typedef struct {
+    sensor_reading_t reading;
+    int moisture_percent;
+    char state[8];
+} notification_event_t;
 
 static QueueHandle_t reading_queue;
+static QueueHandle_t notification_queue;
 
 static void sensor_task(void *parameter)
 {
@@ -74,10 +82,23 @@ static void monitoring_task(void *parameter)
                      monitor.candidate_state,
                      monitor.consecutive_count);
 
-            if (changed) {
-                ESP_LOGI("MONITOR", "Confirmed state: %s",
-                         monitor.confirmed_state);
-            }
+           if (changed) {
+    ESP_LOGI("MONITOR", "Confirmed state: %s",
+             monitor.confirmed_state);
+
+    notification_event_t event = {
+        .reading = reading,
+        .moisture_percent = percent,
+    };
+
+    snprintf(event.state, sizeof(event.state),
+             "%s", monitor.confirmed_state);
+
+    if (xQueueSend(notification_queue, &event, 0) != pdTRUE) {
+        ESP_LOGW("NOTIFY",
+                 "Notification queue full; event dropped");
+    }
+}
         } else {
             monitoring_reset_streak(&monitor);
             ESP_LOGE("POT", "Read failed: %s",
@@ -95,6 +116,35 @@ static void monitoring_task(void *parameter)
     }
 }
 
+static void notification_task(void *parameter)
+{
+    (void)parameter;
+
+    notification_event_t event;
+
+    while (1) {
+        if (xQueueReceive(notification_queue, &event,
+                          portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        ESP_LOGI("NOTIFY",
+                 "Local event only | State: %s | Simulated moisture: %d%%",
+                 event.state, event.moisture_percent);
+
+        if (event.reading.dht_result == ESP_OK) {
+            ESP_LOGI("NOTIFY",
+                     "Temperature: %.1f C | Humidity: %.1f %%",
+                     event.reading.temperature,
+                     event.reading.humidity);
+        } else {
+            ESP_LOGW("NOTIFY",
+                     "Temperature/humidity unavailable: %s",
+                     esp_err_to_name(event.reading.dht_result));
+        }
+    }
+}
+
 void app_tasks_start(void)
 {
     reading_queue = xQueueCreate(4, sizeof(sensor_reading_t));
@@ -102,6 +152,13 @@ void app_tasks_start(void)
     if (reading_queue == NULL) {
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     }
+
+    notification_queue = xQueueCreate(
+    4, sizeof(notification_event_t));
+
+if (notification_queue == NULL) {
+    ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+}
 
     BaseType_t result = xTaskCreate(
         monitoring_task, "monitoring", 4096, NULL, 4, NULL);
@@ -112,4 +169,9 @@ void app_tasks_start(void)
         sensor_task, "sensors", 4096, NULL, 5, NULL);
 
     ESP_ERROR_CHECK(result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+
+    result = xTaskCreate(
+    notification_task, "notifications", 4096, NULL, 3, NULL);
+
+ESP_ERROR_CHECK(result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }
