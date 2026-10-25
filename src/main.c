@@ -3,6 +3,9 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
+#include "dht.h"
+
 
 void app_main(void)
 {
@@ -19,6 +22,17 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(
         adc, ADC_CHANNEL_0, &channel_config));
+    
+    ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, 1));
+    ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_2, GPIO_MODE_INPUT));
+    ESP_ERROR_CHECK(gpio_set_pull_mode(GPIO_NUM_2, GPIO_PULLUP_ONLY));
+    ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_2, GPIO_MODE_INPUT));
+    ESP_ERROR_CHECK(gpio_set_pull_mode(GPIO_NUM_2, GPIO_PULLUP_ONLY));  
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    ESP_LOGI("DHT11", "Idle signal level: %d",
+         gpio_get_level(GPIO_NUM_2));
 
     while (1) {
         int raw;
@@ -33,6 +47,20 @@ void app_main(void)
                      esp_err_to_name(result));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        float humidity;
+        float temperature;
+
+        esp_err_t dht_result = dht_read_float_data(
+            DHT_TYPE_DHT11, GPIO_NUM_2, &humidity, &temperature);
+
+        if (dht_result == ESP_OK) {
+        ESP_LOGI("DHT11", "Temperature: %.1f C | Humidity: %.1f %%",
+             temperature, humidity);
+        } else {
+             ESP_LOGE("DHT11", "Read failed: %s",
+             esp_err_to_name(dht_result));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }

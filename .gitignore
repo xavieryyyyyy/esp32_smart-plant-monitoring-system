@@ -15,3 +15,6 @@ include/secrets.h
 .vscode/
 *.code-workspace
 sdkconfig*.old
+
+# Downloaded ESP-IDF components
+managed_components/
