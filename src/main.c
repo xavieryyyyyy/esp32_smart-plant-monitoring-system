@@ -5,7 +5,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "dht.h"
-
+#include <string.h>
 
 void app_main(void)
 {
@@ -25,14 +25,16 @@ void app_main(void)
     
     ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_2, 1));
     ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_2, GPIO_MODE_INPUT));
-    ESP_ERROR_CHECK(gpio_set_pull_mode(GPIO_NUM_2, GPIO_PULLUP_ONLY));
-    ESP_ERROR_CHECK(gpio_set_direction(GPIO_NUM_2, GPIO_MODE_INPUT));
     ESP_ERROR_CHECK(gpio_set_pull_mode(GPIO_NUM_2, GPIO_PULLUP_ONLY));  
 
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     ESP_LOGI("DHT11", "Idle signal level: %d",
          gpio_get_level(GPIO_NUM_2));
+
+    const char *candidate_state = "";
+    const char *confirmed_state = "UNKNOWN";
+    int consecutive_count = 0;
 
     while (1) {
         int raw;
@@ -52,12 +54,34 @@ void app_main(void)
             } else {
                 state = "NORMAL";
             }
-            ESP_LOGI("POT", "Raw: %d | Simulated moisture: %d%% | State: %s",
-            raw, moisture_percent, state);
-        } else {
-            ESP_LOGE("POT", "Read failed: %s",
-                     esp_err_to_name(result));
-        }
+           ESP_LOGI("POT", "Raw: %d | Simulated moisture: %d%% | State: %s",
+         raw, moisture_percent, state);
+
+/* Step 4: count consecutive matching readings. */
+if (strcmp(state, candidate_state) != 0) {
+    candidate_state = state;
+    consecutive_count = 1;
+} else if (consecutive_count < 3) {
+    consecutive_count++;
+}
+
+ESP_LOGI("MONITOR", "Candidate: %s | Count: %d/3",
+         candidate_state, consecutive_count);
+
+if (consecutive_count == 3 &&
+    strcmp(candidate_state, confirmed_state) != 0) {
+    confirmed_state = candidate_state;
+    ESP_LOGI("MONITOR", "Confirmed state: %s", confirmed_state);
+}
+
+} else {
+    /* Step 5: an ADC error breaks the streak. */
+    candidate_state = "";
+    consecutive_count = 0;
+
+    ESP_LOGE("POT", "Read failed: %s",
+             esp_err_to_name(result));
+}
 
         float humidity;
         float temperature;
