@@ -186,6 +186,15 @@ if (event.reading.time_valid) {
             ESP_LOGW("NOTIFY", "Slack send failed: %s",
                      esp_err_to_name(result));
         }
+
+        esp_err_t discord_result = notifications_send_discord(message);
+
+if (discord_result == ESP_OK) {
+    ESP_LOGI("NOTIFY", "Discord request accepted");
+} else {
+    ESP_LOGW("NOTIFY", "Discord send failed: %s",
+             esp_err_to_name(discord_result));
+}
     }
 }
 
