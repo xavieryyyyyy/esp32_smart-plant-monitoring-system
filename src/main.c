@@ -5,7 +5,6 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "dht.h"
-#include <string.h>
 #include "monitoring.h"
 
 
@@ -34,9 +33,8 @@ void app_main(void)
     ESP_LOGI("DHT11", "Idle signal level: %d",
          gpio_get_level(GPIO_NUM_2));
 
-    const char *candidate_state = "";
-    const char *confirmed_state = "UNKNOWN";
-    int consecutive_count = 0;
+    monitoring_t monitor;
+    monitoring_init(&monitor);
 
     while (1) {
         int raw;
@@ -52,26 +50,20 @@ void app_main(void)
              raw, moisture_percent, state);
 
 /* Step 4: count consecutive matching readings. */
-if (strcmp(state, candidate_state) != 0) {
-    candidate_state = state;
-    consecutive_count = 1;
-} else if (consecutive_count < 3) {
-    consecutive_count++;
-}
+bool state_changed = monitoring_update(&monitor, state);
 
 ESP_LOGI("MONITOR", "Candidate: %s | Count: %d/3",
-         candidate_state, consecutive_count);
+         monitor.candidate_state, monitor.consecutive_count);
 
-if (consecutive_count == 3 &&
-    strcmp(candidate_state, confirmed_state) != 0) {
-    confirmed_state = candidate_state;
-    ESP_LOGI("MONITOR", "Confirmed state: %s", confirmed_state);
+if (state_changed) {
+    ESP_LOGI("MONITOR", "Confirmed state: %s",
+             monitor.confirmed_state);
 }
 
 } else {
     /* Step 5: an ADC error breaks the streak. */
-    candidate_state = "";
-    consecutive_count = 0;
+   monitoring_reset_streak(&monitor);
+
 
     ESP_LOGE("POT", "Read failed: %s",
              esp_err_to_name(result));
