@@ -41,7 +41,19 @@ void app_main(void)
             adc, ADC_CHANNEL_0, &raw);
 
         if (result == ESP_OK) {
-            ESP_LOGI("POT", "Raw reading: %d", raw);
+            int moisture_percent = (raw * 100) / 4095;
+            
+            const char *state;
+
+            if (moisture_percent < 30) {
+                state = "DRY";
+            } else if (moisture_percent > 70) {
+                state = "WET";
+            } else {
+                state = "NORMAL";
+            }
+            ESP_LOGI("POT", "Raw: %d | Simulated moisture: %d%% | State: %s",
+            raw, moisture_percent, state);
         } else {
             ESP_LOGE("POT", "Read failed: %s",
                      esp_err_to_name(result));
