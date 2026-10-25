@@ -195,8 +195,17 @@ if (discord_result == ESP_OK) {
     ESP_LOGW("NOTIFY", "Discord send failed: %s",
              esp_err_to_name(discord_result));
 }
+esp_err_t telegram_result = notifications_send_telegram(message);
+
+if (telegram_result == ESP_OK) {
+    ESP_LOGI("NOTIFY", "Telegram request accepted");
+} else {
+    ESP_LOGW("NOTIFY", "Telegram send failed: %s",
+             esp_err_to_name(telegram_result));
+}
     }
 }
+
 
 void app_tasks_start(void)
 {
