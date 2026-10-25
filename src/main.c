@@ -6,6 +6,8 @@
 #include "driver/gpio.h"
 #include "dht.h"
 #include <string.h>
+#include "monitoring.h"
+
 
 void app_main(void)
 {
@@ -42,20 +44,12 @@ void app_main(void)
         esp_err_t result = adc_oneshot_read(
             adc, ADC_CHANNEL_0, &raw);
 
-        if (result == ESP_OK) {
-            int moisture_percent = (raw * 100) / 4095;
-            
-            const char *state;
+       if (result == ESP_OK) {
+        int moisture_percent = monitoring_percent(raw);
+        const char *state = monitoring_classify(moisture_percent);
 
-            if (moisture_percent < 30) {
-                state = "DRY";
-            } else if (moisture_percent > 70) {
-                state = "WET";
-            } else {
-                state = "NORMAL";
-            }
-           ESP_LOGI("POT", "Raw: %d | Simulated moisture: %d%% | State: %s",
-         raw, moisture_percent, state);
+        ESP_LOGI("POT", "Raw: %d | Simulated moisture: %d%% | State: %s",
+             raw, moisture_percent, state);
 
 /* Step 4: count consecutive matching readings. */
 if (strcmp(state, candidate_state) != 0) {
