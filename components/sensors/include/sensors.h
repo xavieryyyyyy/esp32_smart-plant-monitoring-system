@@ -1,10 +1,14 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include "esp_err.h"
 
 typedef struct {
     uint32_t sequence;
+    time_t measured_at;
+    bool time_valid;
     int raw;
     float humidity;
     float temperature;

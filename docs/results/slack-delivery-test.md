@@ -13,7 +13,8 @@
 ## Limitations
 - Screenshot contains two identical updates; whether these followed
   separate boots or occurred during one run is not yet established.
-- Measurement timestamps are not included in the message yet.
+- Measurement timestamps were added and tested subsequently;
+  see the measurement timestamp test below.
 - Bounded delivery retries, rate-limit handling, and cooldown
   remain pending.
 - Local webhook credentials are excluded from Git.
@@ -33,3 +34,19 @@ no-repeat observation is not established by this excerpt.
 The cause of the two earlier DRY messages remains unconfirmed.
 
 ![NORMAL delivery](slack-normal-delivery.png)
+
+
+## Measurement timestamp test
+
+A WET message arrived with measurement time
+2026-10-25 11:08:07 UTC and matching values:
+100% simulated moisture, 28 C, and 76% RH.
+
+The supplied serial log showed certificate validation and HTTP 200.
+Sampling continued every five seconds, with no additional send
+shown for approximately 33 seconds after acceptance.
+
+This verifies the synchronized-time path. The unsynchronized-time
+fallback and delayed-queue timestamp preservation remain untested.
+
+![Timestamped Slack message](slack-timestamp-delivery.png)

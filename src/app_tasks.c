@@ -7,6 +7,7 @@
 #include "monitoring.h"
 #include <stdio.h>
 #include "notifications.h"
+#include "connectivity.h"
 
 typedef struct {
     sensor_reading_t reading;
@@ -29,6 +30,12 @@ static void sensor_task(void *parameter)
     while (1) {
         sensor_reading_t reading = {0};
         reading.sequence = sequence++;
+
+        reading.time_valid = connectivity_time_is_ready();
+
+if (reading.time_valid) {
+    reading.measured_at = time(NULL);
+}
 
         reading.pot_result =
             sensors_read_potentiometer(&reading.raw);
@@ -132,16 +139,27 @@ static void notification_task(void *parameter)
         char message[384];
         int length;
 
+        char measured_time[48] = "unavailable (clock not synchronized)";
+
+if (event.reading.time_valid) {
+    struct tm utc;
+
+    gmtime_r(&event.reading.measured_at, &utc);
+    strftime(measured_time, sizeof(measured_time),
+             "%Y-%m-%d %H:%M:%S UTC", &utc);
+}
+
         if (event.reading.dht_result == ESP_OK) {
             length = snprintf(
                 message, sizeof(message),
                 "Plant-01\n"
+                "Measured: %s\n"
                 "Reason: confirmed moisture state\n"
                 "State: %s\n"
                 "Simulated moisture: %d%%\n"
                 "Temperature: %.1f C\n"
                 "Humidity: %.1f%%",
-                event.state, event.moisture_percent,
+                measured_time, event.state, event.moisture_percent,
                 event.reading.temperature,
                 event.reading.humidity);
         } else {
