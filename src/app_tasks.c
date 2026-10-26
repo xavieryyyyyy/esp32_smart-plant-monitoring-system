@@ -107,7 +107,7 @@ if (age_us < 0 || age_us > 10LL * 1000000LL) {
     ESP_LOGI("MONITOR", "Confirmed state: %s",
              monitor.confirmed_state);
 
-    int64_t now_us = esp_timer_get_time();
+    
 
     if (!monitoring_notification_due(
             &monitor, monitor.confirmed_state, now_us)) {
