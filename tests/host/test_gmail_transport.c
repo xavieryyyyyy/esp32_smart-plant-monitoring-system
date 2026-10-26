@@ -183,67 +183,171 @@ ssize_t esp_tls_conn_read(esp_tls_t *tls, void *bytes, size_t size)
      */
     return 1;
 }
+/* Release the TLS connection object even if authentication or a later SMTP step failed. */
 void esp_tls_conn_destroy(esp_tls_t *tls)
 {
+    /* Only free/count an allocated fake session; a NULL pointer owns no connection. */
     if (tls) {
+        /* Count the fake connection as closed before freeing its object. */
         open_connections--;
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(tls);
     }
 }
+/*
+ * Declare the host Base64 substitute used to test message construction, not real TLS
+ * cryptography.
+ */
 int mbedtls_base64_encode(unsigned char *destination, size_t capacity, size_t *length,
                           const unsigned char *source, size_t size)
 {
     /* Use Windows' Base64 implementation as the offline mbedTLS stand-in. */
     DWORD count = (DWORD)capacity;
+    /*
+     * Use Windows Base64 encoding without its own line breaks; the real sender performs MIME
+     * wrapping.
+     */
     if (!CryptBinaryToStringA(source, (DWORD)size, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
                               (char *)destination, &count))
+        /*
+         * Report a fake read/write/conversion failure so the sender's error-handling path is
+         * exercised.
+         */
         return -1;
+    /* Return the actual Base64 output length to the real Gmail sender under test. */
     *length = strlen((const char *)destination);
+    /* Return a successful process/test status to the computer-side runner. */
     return 0;
 }
+/* Overwrite temporary login bytes so that encoded credentials are not left in this buffer. */
 void mbedtls_platform_zeroize(void *bytes, size_t size)
 {
+    /* Use volatile writes so the compiler cannot simply discard the test buffer-erasing loop. */
     volatile unsigned char *p = bytes;
+    /* Overwrite each byte of this test buffer once. */
     while (size--)
+        /* Write zero to this byte, then advance the pointer to the next byte to erase. */
         *p++ = 0;
 }
 
+/*
+ * Computer-side test entry point: validate arguments, run this executable's checks, and return
+ * pass/fail.
+ */
 int main(int argc, char **argv)
 {
+    /* Require the expected test command-line arguments before reading argv entries. */
     if (argc != 3)
+        /*
+         * Return a nonzero process status so the computer-side runner treats this test
+         * invocation as failed.
+         */
         return 2;
+    /* Keep one event's values together while the senders build their own presentation. */
     notification_message_t message = {.state = "DRY",
+                                      /*
+                                       * Copy this captured event's simulated percentage, not a
+                                       * newer live reading.
+                                       */
                                       .moisture_percent = 26,
+                                      /*
+                                       * Use temperature captured with this event;
+                                       * environment_valid determines whether it is displayed.
+                                       */
                                       .temperature = 28.0f,
+                                      /*
+                                       * Use humidity from the same captured reading, keeping the
+                                       * values paired.
+                                       */
                                       .humidity = 77.0f,
+                                      /*
+                                       * Mark both environment values usable only if this event's
+                                       * DHT read succeeded.
+                                       */
                                       .environment_valid = true,
+                                      /*
+                                       * Keep the original captured Unix time; the formatter
+                                       * converts only its display to PhST.
+                                       */
                                       .measured_at = (time_t)1792973754,
+                                      /*
+                                       * Carry the acquisition-time validity flag instead of
+                                       * substituting a later synchronized time.
+                                       */
                                       .time_valid = true};
+    /* Compare the actual characters; strcmp returns zero when both state words match. */
     if (strcmp(argv[2], "missing-dht") == 0)
+        /*
+         * Set this controlled test input/flag for the scenario named by the surrounding test
+         * function.
+         */
         message.environment_valid = false;
+    /* Compare the actual characters; strcmp returns zero when both state words match. */
     if (strcmp(argv[2], "unknown-clock") == 0)
+        /*
+         * Set this controlled test input/flag for the scenario named by the surrounding test
+         * function.
+         */
         message.time_valid = false;
+    /* Enable write-failure injection only for the failed-write test mode. */
     break_write = strcmp(argv[2], "failed-write") == 0;
+    /* Pass this captured message to the named service; return status is checked below. */
     esp_err_t result = notifications_send_gmail(&message);
+    /* Fail if the real sender left a fake TLS session unclosed. */
     if (open_connections != 0) {
+        /* Print a test failure explanation to stderr so the runner can show which check failed. */
         fprintf(stderr, "TLS connection leaked\n");
+        /*
+         * Return a nonzero process status so the computer-side runner treats this test
+         * invocation as failed.
+         */
         return 1;
     }
+    /* Inject or handle the chosen fake write failure; no real network is involved. */
     if (break_write) {
+        /* Continue to the next step only if the preceding operation succeeded. */
         if (result == ESP_OK)
+            /*
+             * Return a nonzero process status so the computer-side runner treats this test
+             * invocation as failed.
+             */
             return 1;
+        /* Print the result of this completed offline check. */
         puts("PASS Gmail failed-write cleanup");
+        /* Return a successful process/test status to the computer-side runner. */
         return 0;
     }
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK) {
+        /* Print a test failure explanation to stderr so the runner can show which check failed. */
         fprintf(stderr, "SMTP simulation failed: %d\n", result);
+        /*
+         * Return a nonzero process status so the computer-side runner treats this test
+         * invocation as failed.
+         */
         return 1;
     }
+    /*
+     * Open the requested local capture file in binary mode; this does not contact a mail
+     * service.
+     */
     FILE *file = fopen(argv[1], "wb");
+    /* Stop if the local artifact file could not be opened. */
     if (!file)
+        /*
+         * Return a nonzero process status so the computer-side runner treats this test
+         * invocation as failed.
+         */
         return 2;
+    /* Write these captured/generated bytes to the opened local test artifact file. */
     fwrite(sent, 1, used, file);
+    /* Close the local file so its saved output is complete and the handle is released. */
     fclose(file);
+    /* Print the result of this completed offline check. */
     puts("PASS Gmail SMTP conversation with partial writes");
+    /* Return a successful process/test status to the computer-side runner. */
     return 0;
 }
