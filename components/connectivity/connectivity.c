@@ -5,22 +5,47 @@
  * It also gets the current date/time from the Internet using SNTP.
  * Other files ask this file whether Wi-Fi and time are ready before sending.
  */
+/*
+ * Event-flag key:
+ * Each BIT value selects one on/off flag. bits & FLAG checks only that flag.
+ * FLAG_A | FLAG_B combines two flags so either one can prevent a reconnect attempt.
+ * An event callback runs when ESP-IDF reports a change. Keep it short: wake the
+ * reconnect task here and let that task handle the waiting/connection work.
+ * NVS stores saved Wi-Fi settings in flash; SNTP learns wall-clock time from the
+ * Internet. Neither is the monotonic uptime timer used for sample ages/cooldowns.
+ */
 #include "connectivity.h"
+/* Use FreeRTOS types and constants for tasks, queues, and waiting. */
 #include "freertos/FreeRTOS.h"
+/* Store several shared on/off readiness flags safely in one event group. */
 #include "freertos/event_groups.h"
+/* Use ESP-IDF result codes: ESP_OK means success; other codes describe failures. */
 #include "esp_err.h"
+/* Receive ESP-IDF events such as a Wi-Fi disconnect or a newly assigned IP address. */
 #include "esp_event.h"
+/* Print tagged information, warnings, and errors in the serial monitor. */
 #include "esp_log.h"
+/* Create the network interface that joins a router as a Wi-Fi station. */
 #include "esp_netif.h"
+/* Configure, start, and reconnect the Wi-Fi radio. */
 #include "esp_wifi.h"
+/* Initialize nonvolatile storage, where Wi-Fi settings survive a restart. */
 #include "nvs_flash.h"
+/* Manage the phone setup process and its Wi-Fi credential events. */
 #include "network_provisioning/manager.h"
+/* Receive phone setup data over Bluetooth Low Energy (BLE). */
 #include "network_provisioning/scheme_ble.h"
+/* Create background jobs, pause them, or wake them with task notifications. */
 #include "freertos/task.h"
+/* Format bounded text with snprintf(), or use file/console I/O in host tests. */
 #include <stdio.h>
+/* Read the device MAC address to help make its phone-setup name. */
 #include "esp_mac.h"
+/* Generate random numbers for the temporary phone-setup code. */
 #include "esp_random.h"
+/* Store Unix timestamps and convert them into calendar date/time fields. */
 #include <time.h>
+/* Configure Internet time synchronization and its completion callback. */
 #include "esp_netif_sntp.h"
 
 /*
@@ -34,16 +59,24 @@
 /* On after Internet time has been received at least once. */
 #define TIME_READY_BIT BIT2
 
+/* Handle for the shared Wi-Fi/setup/time flags; each bit answers one readiness question. */
 static EventGroupHandle_t connection_events;
+/* Remember the reconnect job so an event handler can wake that specific job. */
 static TaskHandle_t reconnect_task_handle;
 
 /* Other files call this to check Wi-Fi readiness before trying a send. */
 bool connectivity_is_ready(void)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (connection_events == NULL) {
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
     }
 
+    /*
+     * Read the shared bits, isolate the Wi-Fi flag with &, and answer true only if that bit is
+     * on.
+     */
     return (xEventGroupGetBits(connection_events) & WIFI_READY_BIT) != 0;
 }
 
@@ -52,10 +85,16 @@ bool connectivity_is_ready(void)
  */
 bool connectivity_time_is_ready(void)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (connection_events == NULL) {
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
     }
 
+    /*
+     * Read the shared bits, isolate the time flag with &, and answer whether SNTP has
+     * synchronized once.
+     */
     return (xEventGroupGetBits(connection_events) & TIME_READY_BIT) != 0;
 }
 
@@ -66,20 +105,38 @@ bool connectivity_time_is_ready(void)
  */
 static void reconnect_task(void *parameter)
 {
+    /*
+     * This callback/task must accept the parameter, but this implementation intentionally does
+     * not use it.
+     */
     (void)parameter;
+    /* Start Wi-Fi retries with a 1000 ms wait; later failures may increase that delay. */
     uint32_t retry_delay_ms = 1000;
 
+    /*
+     * Keep this task/read loop running; its wait, break, or error path below decides when to
+     * proceed.
+     */
     while (1) {
         /* Wait until another part of this file asks the reconnect job to do something. */
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
+        /*
+         * Take a snapshot of the shared readiness flags before deciding whether a retry is
+         * needed.
+         */
         EventBits_t bits = xEventGroupGetBits(connection_events);
 
         /*
          * Already connected? Reset the next retry wait to one second and wait for another event.
          */
         if (bits & WIFI_READY_BIT) {
+            /*
+             * Reset/cap the Wi-Fi retry wait in milliseconds according to the surrounding
+             * branch.
+             */
             retry_delay_ms = 1000;
+            /* Skip the rest of this loop iteration and return to its next receive/retry step. */
             continue;
         }
 
@@ -87,32 +144,53 @@ static void reconnect_task(void *parameter)
          * During phone setup, let Espressif's setup code handle the connection attempts.
          */
         if (bits & PROVISIONING_BIT) {
+            /* Skip the rest of this loop iteration and return to its next receive/retry step. */
             continue;
         }
 
+        /*
+         * Pause this task and let other tasks run; pdMS_TO_TICKS converts milliseconds to
+         * scheduler ticks.
+         */
         vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
 
         /*
          * Check again after waiting: Wi-Fi or phone setup may have changed while we slept.
          */
         bits = xEventGroupGetBits(connection_events);
+        /*
+         * Inspect the selected event-group bits before deciding whether Wi-Fi retry work is
+         * allowed.
+         */
         if (bits & (WIFI_READY_BIT | PROVISIONING_BIT)) {
+            /* Skip the rest of this loop iteration and return to its next receive/retry step. */
             continue;
         }
 
+        /* Print an informational progress/result line with a tag for the serial monitor. */
         ESP_LOGI("WIFI", "Attempting connection");
+        /* Keep this operation's success/error code so later steps can stop safely on failure. */
         esp_err_t result = esp_wifi_connect();
 
         /* Double the wait for the next try, but stop increasing it at thirty seconds. */
         if (retry_delay_ms < 30000) {
+            /* Double the next retry delay after this attempt, up to the cap checked below. */
             retry_delay_ms *= 2;
+            /* Increase the retry wait only until its thirty-second maximum. */
             if (retry_delay_ms > 30000) {
+                /*
+                 * Reset/cap the Wi-Fi retry wait in milliseconds according to the surrounding
+                 * branch.
+                 */
                 retry_delay_ms = 30000;
             }
         }
 
+        /* Handle/return the earlier failure instead of continuing with invalid output. */
         if (result != ESP_OK) {
+            /* Print a warning about a recoverable problem or skipped operation. */
             ESP_LOGW("WIFI", "Connection request failed: %s", esp_err_to_name(result));
+            /* Wake the reconnect task; let that task perform any delayed connection work. */
             xTaskNotifyGive(reconnect_task_handle);
         }
     }
@@ -126,44 +204,73 @@ static void reconnect_task(void *parameter)
 static void connection_event_handler(void *argument, esp_event_base_t event_base, int32_t event_id,
                                      void *event_data)
 {
+    /*
+     * This callback/task must accept the parameter, but this implementation intentionally does
+     * not use it.
+     */
     (void)argument;
+    /*
+     * This callback/task must accept the parameter, but this implementation intentionally does
+     * not use it.
+     */
     (void)event_data;
 
     /*
      * The router gave us an IP address. Mark Wi-Fi ready and start the Internet clock service.
      */
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        /* Turn on the named shared readiness/setup flag without changing the other flags. */
         xEventGroupSetBits(connection_events, WIFI_READY_BIT);
+        /* Wake the reconnect task; let that task perform any delayed connection work. */
         xTaskNotifyGive(reconnect_task_handle);
 
+        /* Keep this operation's success/error code so later steps can stop safely on failure. */
         esp_err_t time_result = esp_netif_sntp_start();
 
+        /* Handle/return the earlier failure instead of continuing with invalid output. */
         if (time_result != ESP_OK) {
+            /* Print a warning about a recoverable problem or skipped operation. */
             ESP_LOGW("TIME", "Time service start failed: %s", esp_err_to_name(time_result));
         }
 
+        /* Identify which ESP-IDF Wi-Fi/IP/provisioning event caused this callback. */
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         /* The Wi-Fi system has started. Ask the reconnect job to make the connection. */
         xTaskNotifyGive(reconnect_task_handle);
 
+        /* Identify which ESP-IDF Wi-Fi/IP/provisioning event caused this callback. */
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         /* Wi-Fi was lost. Mark it unavailable and ask the reconnect job to try again. */
         xEventGroupClearBits(connection_events, WIFI_READY_BIT);
+        /* Wake the reconnect task; let that task perform any delayed connection work. */
         xTaskNotifyGive(reconnect_task_handle);
+        /* Print a warning about a recoverable problem or skipped operation. */
         ESP_LOGW("WIFI", "Disconnected");
 
+        /* Identify which ESP-IDF Wi-Fi/IP/provisioning event caused this callback. */
     } else if (event_base == NETWORK_PROV_EVENT) {
+        /* Handle the individual BLE-provisioning event reported by Espressif's manager. */
         switch (event_id) {
             /* The phone setup has begun. Keep the normal reconnect job out of its way. */
             case NETWORK_PROV_START:
+                /*
+                 * Turn on the named shared readiness/setup flag without changing the other
+                 * flags.
+                 */
                 xEventGroupSetBits(connection_events, PROVISIONING_BIT);
+                /* Print an informational progress/result line with a tag for the serial monitor. */
                 ESP_LOGI("PROVISION", "Phone setup started");
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
 
             /*
              * The phone supplied Wi-Fi details. Receiving them does not yet prove they work.
              */
             case NETWORK_PROV_WIFI_CRED_RECV:
+                /* Print an informational progress/result line with a tag for the serial monitor. */
                 ESP_LOGI("PROVISION", "Wi-Fi credentials received");
                 break;
 
