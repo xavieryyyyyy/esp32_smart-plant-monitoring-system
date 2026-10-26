@@ -1,3 +1,4 @@
+# Ask for cJSON, used to build service messages and read Telegram's reply.
 dependencies:
   espressif/cjson:
     version: "1.7.19~2"

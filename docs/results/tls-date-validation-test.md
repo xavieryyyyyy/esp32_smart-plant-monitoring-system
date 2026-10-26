@@ -1,5 +1,16 @@
 # TLS certificate date-check configuration test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T1, T7 / TLS configuration |
+| Method | Enabled date checks and successful synchronized requests |
+| Acceptance check | Existing services still operate with certificate validity-date checking enabled. |
+| Outcome and scope | All four integrations operated; rejection of invalid dates was not tested. |
+
 ## Configuration
 CONFIG_MBEDTLS_HAVE_TIME_DATE=y
 

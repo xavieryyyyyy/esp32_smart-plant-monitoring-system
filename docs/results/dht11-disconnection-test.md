@@ -1,3 +1,16 @@
+# DHT11 disconnection and recovery test
+
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T1, T3 / missing sensor |
+| Method | Hardware disconnect and later recovery excerpts |
+| Acceptance check | DHT failures are reported while valid potentiometer processing continues. |
+| Outcome and scope | Four failures and later successful readings observed; live recovery timing is not established. |
+
 ## Captured results
 
 ### DHT11 signal disconnected

@@ -1,5 +1,16 @@
 # Monitoring sample freshness test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T3, T4 / sample freshness |
+| Method | Injected old timestamp followed by production cleanup run |
+| Acceptance check | Reject the old sample, reset its streak, and require three subsequent fresh samples. |
+| Outcome and scope | Observed for the injected case; backlog and exact/future boundaries remain untested. |
+
 ## Policy
 Each sample carries a monotonic acquisition-start timestamp.
 Monitoring rejects samples older than 10 seconds or with future

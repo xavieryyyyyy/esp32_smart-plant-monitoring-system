@@ -1,0 +1,17 @@
+﻿Cppcheck 2.11
+Checking esp32-s3-devkitc-1 > cppcheck (platform: espressif32; board: esp32-s3-devkitc-1; framework: espidf)
+--------------------------------------------------------------------------------
+src\app_tasks.c:236: [low:style] The function 'app_tasks_start' is never used. [unusedFunction]
+src\main.c:9: [low:style] The function 'app_main' is never used. [unusedFunction]
+========================== [PASSED] Took 0.26 seconds ==========================
+
+Component     HIGH    MEDIUM    LOW
+-----------  ------  --------  -----
+src            0        0        2
+
+Total          0        0        2
+
+Environment         Tool      Status    Duration
+------------------  --------  --------  ------------
+esp32-s3-devkitc-1  cppcheck  PASSED    00:00:00.261
+========================= 1 succeeded in 00:00:00.261 =========================

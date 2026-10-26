@@ -1,3 +1,5 @@
+# Build connectivity.c and make connectivity.h available to other components.
+# REQUIRES brings in Wi-Fi, saved settings, FreeRTOS, and Bluetooth phone setup.
 idf_component_register(
     SRCS "connectivity.c"
     INCLUDE_DIRS "include"

@@ -1,4 +1,15 @@
-﻿# Matching four-channel delivery test
+# Matching four-channel delivery test
+
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T1, T4, T7 / matching recipients |
+| Method | Serial timing plus four recipient screenshots |
+| Acceptance check | One acquisition timestamp and the same values are visible in all four selected services. |
+| Outcome and scope | Matching NORMAL event observed at 2026-10-26 05:23:26 UTC; a single event is not endurance evidence. |
 
 ## Event identity
 

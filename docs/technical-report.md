@@ -95,6 +95,7 @@ The base PlatformIO profile is `esp32-s3-devkitc-1`. Its printed N8 description 
 |---|---|
 | Language and framework | C; `framework = espidf` |
 | PlatformIO Core | 6.2.0 |
+| Static analyzer | Cppcheck 2.11; reported scope `src` |
 | Espressif32 platform | 7.1.2 |
 | ESP-IDF | 6.1.0 |
 | Xtensa toolchain package | `15.2.0+20251204` |
@@ -186,6 +187,12 @@ When a reading queue overflows, the next received sequence gap can break confirm
 ![Figure 5. Sample processing from sequence/freshness validation to confirmation, cooldown, and dispatch. DHT health is tracked independently.](assets/report/processing-flow.png)
 
 <!-- pagebreak -->
+
+### 4.5 Reading and maintaining the source
+
+The entry point, task coordinator, component interfaces, and build declarations have different responsibilities. `src/main.c` starts the tasks and connectivity. `src/app_tasks.c` moves copied samples through monitoring into a notification snapshot. The sensor component owns hardware access, monitoring owns decision logic, connectivity owns network/time state, and the four notification implementations own protocol requests. Appendix C maps the individual files and their connections. `docs/code-guide.md` provides the longer walkthrough and serial-log explanation.
+
+Explanatory comments describe these boundaries, acquisition versus dispatch time, queue ownership, and failure outcomes. They preserve the existing logic, including the failed-DHT timestamp omission and cooldown accounting at enqueue. Comments are not evidence that an untested fault path passed.
 
 ## 5. Network provisioning and transport security
 
@@ -353,7 +360,7 @@ The recorded clean build succeeded. A search for `warning:` and `warning!` in it
 
 Cppcheck passed with zero high, zero medium, and two low findings after a shadowed `now_us` declaration was removed. The remaining low findings were `unusedFunction` reports for `app_main`, which ESP-IDF invokes, and `app_tasks_start`, which is called from `src/main.c`. They were retained as analysis limitations rather than used to remove necessary functions.
 
-The output identifies scope `src`; custom-component coverage is not established. The Cppcheck version was not captured. The tool/version record and broader component analysis remain incomplete relative to the full quality-assurance requirement.
+The documentation-review run verified Cppcheck 2.11 and reproduced the result: zero high, zero medium, and two low findings. The tool version and command output are retained in `docs/results/static-analysis-output.txt`. PlatformIO identifies scope `src`; custom-component coverage remains unestablished. Recording the version closes the earlier tool-identification gap, but does not extend the analyzed scope.
 
 <!-- pagebreak -->
 
@@ -416,7 +423,7 @@ The original brief grades Gmail, WhatsApp, Telegram, and X independently. This r
 - Complete retry/rate-limit/error policies for Discord, Telegram, and Gmail; exercise real Slack header parsing and ambiguous transport failures.
 - Add a controlled reprovisioning mechanism and test prolonged connectivity loss.
 - Evaluate dispatch-age handling, durable events, and per-channel delivery state if eventual-delivery guarantees are required.
-- Record static-analysis tool version, establish custom-component coverage, and repeat a clean-clone build.
+- Establish custom-component static-analysis coverage and repeat a clean-clone build; Cppcheck 2.11 is now recorded.
 - Complete the narrated video or instructor-directed live demonstration.
 
 ## 11. Conclusion
@@ -537,3 +544,45 @@ Select-String -Path build-check.log -Pattern 'warning:|warning!'
 ```
 
 The report and README document existing evidence. Their presence does not remove the need to reproduce required behavior during the instructor-directed demonstration.
+
+
+<!-- pagebreak -->
+
+## Appendix C. Source files and data connections
+
+### C.1 Runtime path
+
+ESP-IDF invokes `app_main()` in `src/main.c`. Application queues/tasks are created before connectivity startup. Acquisition can therefore run while Wi-Fi and time are not ready. The sensor task calls the sensors interface, sends a copied `sensor_reading_t` through `reading_queue`, and wakes on a five-second schedule. Monitoring checks sequence and age, calls the monitoring interface, and queues an eligible changed-state snapshot. The notification task formats one message from that snapshot and calls Slack, Discord, Telegram, and Gmail in order. Each service result is logged independently.
+
+Component paths in Table 13 are relative to the components directory. Paths beginning `src/`, `test/`, or `scripts/` are relative to the repository root.
+
+**Table 13. Source file responsibilities and connections.**
+
+| File or group | Responsibility and connection |
+|---|---|
+| `src/main.c`; `src/app_tasks.h` | Application entry and task-start interface; connects startup to the coordinator and connectivity |
+| `src/app_tasks.c` | Three application tasks, two queues, freshness gate, transition eligibility, formatting, sequential dispatch |
+| `sensors/include/sensors.h` | Public reading structure and read/init declarations; used by the coordinator |
+| `sensors/sensors.c` | ADC1 channel 0 / GPIO1 and DHT11 / GPIO2; validates reads before publishing outputs |
+| `monitoring/include/monitoring.h`; `monitoring.c` in that component | Confirmation/cooldown state and pure decision logic; called by monitoring task and Unity tests |
+| `connectivity/include/connectivity.h`; `connectivity.c` in that component | Readiness interface; BLE provisioning, Wi-Fi events/reconnect task, SNTP, event flags |
+| `notifications/include/notifications.h` | Four synchronous sender declarations; coordinator supplies a borrowed message |
+| `notifications/notifications.c` | Slack JSON HTTPS sender, bounded retries, Retry-After and shared deadline state |
+| `notifications/discord.c` | Discord HTTPS webhook; disabled mentions and response-wait option |
+| `notifications/telegram.c` | Telegram JSON request and bounded JSON response collection; checks API success |
+| `notifications/gmail.c` | SMTP/TLS session, authentication, MIME body, reply validation and cleanup |
+| `notifications/config.example.h`; local counterpart | Public placeholders versus ignored private values; only the local header contains real credentials |
+| `test/test_monitoring/test_main.c` | Six Unity logic tests; test firmware must be replaced by production firmware after testing |
+| `scripts/refresh_component_cmake.py` | Host pre-build hook that prompts CMake reconfiguration when component declarations change |
+
+### C.2 Build declarations
+
+The root `CMakeLists.txt` starts the ESP-IDF build. `src/CMakeLists.txt` lists the application C files and dependencies; each component CMake file lists its own sources and exported headers. A header declaration does not compile its implementation. A new sender still needs a source-list entry and a matching definition; the refresh hook does not supply either.
+
+The three `idf_component.yml` manifests declare managed DHT, provisioning, and cJSON dependencies. `dependencies.lock` records their resolutions. `platformio.ini` selects the build/test environment and pre-build hook. `sdkconfig.esp32-s3-devkitc-1` records ESP-IDF settings, and `partitions.csv` defines flash regions including the 4 MB factory app. `config.local.h` remains ignored and outside the submitted repository.
+
+### C.3 Timing and error boundaries
+
+Monotonic `sampled_at_us` supports age checks without requiring SNTP; optional `measured_at` supplies captured UTC for human-readable messages. Neither should be substituted for the other. A DHT failure can coexist with a valid ADC result. A stale sample is discarded before processing, whereas a delayed notification is not currently checked again before dispatch. Successful enqueue records cooldown before delivery, and sender acceptance does not establish that a person read the message. These boundaries explain both the source comments and the documented reliability limits.
+
+The Markdown documentation guide, results index, rubric checklist, and verification plan provide navigation beyond this report. They distinguish the original grading requirements from adaptations, recorded observations, and checks still to be performed. The video is deferred and the planned face-to-face demonstration remains a future activity.

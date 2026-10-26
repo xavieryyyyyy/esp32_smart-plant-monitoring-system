@@ -1,5 +1,16 @@
 # Slack retry-policy tests
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T6 / retries and rate limits |
+| Method | Injected status/delay values followed by a real cleanup request |
+| Acceptance check | Attempts stop at three and injected delays are respected while sampling continues. |
+| Outcome and scope | Selected retry paths observed; injection bypasses real header parsing. |
+
 ## Method
 Temporary code injected response status and retry-delay values
 inside slack_send_once(), bypassing network requests.
@@ -27,7 +38,7 @@ Observed:
 - Slack request accepted.
 - Continued sensor sampling.
 
-Recipient delivery after cleanup remains to be confirmed.
+The cleanup excerpt establishes request acceptance, not visible receipt for that particular event. A later, separate [four-channel test](four-channel-delivery-test.md) includes matching Slack recipient evidence.
 
 ## Limitations
 - These simulations did not exercise HTTP header parsing.

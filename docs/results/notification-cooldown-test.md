@@ -1,5 +1,16 @@
 # Notification cooldown test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T4 / notification eligibility |
+| Method | Hardware transitions plus separate synthetic-time unit tests |
+| Acceptance check | Repeated DRY inside fifteen minutes is suppressed without blocking NORMAL recovery. |
+| Outcome and scope | Hardware suppression observed; expiry and independent timers verified with synthetic time. |
+
 ## Procedure
 Without restarting the ESP32, hold the potentiometer
 at DRY, then NORMAL, then DRY until each state confirms.

@@ -1,3 +1,8 @@
+/*
+ * These are small automatic checks for the rules in monitoring.c, using Unity.
+ * They supply pretend readings/times, so the cooldown tests do not wait fifteen minutes.
+ * pio test uploads this test program. Upload the normal application again afterward.
+ */
 #include "unity.h"
 #include "monitoring.h"
 #include "freertos/FreeRTOS.h"
@@ -6,8 +11,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-
-
+/* Check both sides of each boundary: 30% and 70% themselves must be NORMAL. */
 static void test_threshold_boundaries(void)
 {
     TEST_ASSERT_EQUAL_STRING("DRY", monitoring_classify(29));
@@ -16,6 +20,9 @@ static void test_threshold_boundaries(void)
     TEST_ASSERT_EQUAL_STRING("WET", monitoring_classify(71));
 }
 
+/*
+ * Two DRY readings are not enough. The third confirms DRY; the fourth must not repeat it.
+ */
 static void test_confirmation_and_no_repeat(void)
 {
     monitoring_t monitor;
@@ -27,6 +34,10 @@ static void test_confirmation_and_no_repeat(void)
     TEST_ASSERT_FALSE(monitoring_update(&monitor, "DRY"));
 }
 
+/*
+ * Call the reset function to act like a broken reading streak.
+ * This checks the rule; it does not physically disconnect the potentiometer.
+ */
 static void test_error_reset_breaks_streak(void)
 {
     monitoring_t monitor;
@@ -42,23 +53,27 @@ static void test_error_reset_breaks_streak(void)
     TEST_ASSERT_TRUE(monitoring_update(&monitor, "DRY"));
 }
 
+/*
+ * Pretend an alert happened at time zero. It must wait all fifteen minutes.
+ * 900,000,000 microseconds = fifteen minutes; one microsecond earlier is too soon.
+ */
 static void test_repeated_dry_waits_fifteen_minutes(void)
 {
     monitoring_t monitor;
     monitoring_init(&monitor);
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "DRY", 0));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "DRY", 0));
 
     monitoring_record_notification(&monitor, "DRY", 0);
 
-    TEST_ASSERT_FALSE(
-        monitoring_notification_due(&monitor, "DRY", 899999999LL));
+    TEST_ASSERT_FALSE(monitoring_notification_due(&monitor, "DRY", 899999999LL));
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "DRY", 900000000LL));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "DRY", 900000000LL));
 }
 
+/*
+ * A DRY alert must not use up WET's turn. Check that each keeps its own fifteen-minute clock.
+ */
 static void test_dry_and_wet_have_independent_cooldowns(void)
 {
     monitoring_t monitor;
@@ -66,21 +81,18 @@ static void test_dry_and_wet_have_independent_cooldowns(void)
 
     monitoring_record_notification(&monitor, "DRY", 0);
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "WET", 1));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "WET", 1));
 
     monitoring_record_notification(&monitor, "WET", 1);
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "DRY", 900000000LL));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "DRY", 900000000LL));
 
-    TEST_ASSERT_FALSE(
-        monitoring_notification_due(&monitor, "WET", 900000000LL));
+    TEST_ASSERT_FALSE(monitoring_notification_due(&monitor, "WET", 900000000LL));
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "WET", 900000001LL));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "WET", 900000001LL));
 }
 
+/* A return to NORMAL should be allowed even just after a DRY or WET alert. */
 static void test_cooldown_does_not_block_recovery(void)
 {
     monitoring_t monitor;
@@ -88,15 +100,16 @@ static void test_cooldown_does_not_block_recovery(void)
 
     monitoring_record_notification(&monitor, "DRY", 0);
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "NORMAL", 1));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "NORMAL", 1));
 
     monitoring_record_notification(&monitor, "WET", 2);
 
-    TEST_ASSERT_TRUE(
-        monitoring_notification_due(&monitor, "NORMAL", 3));
+    TEST_ASSERT_TRUE(monitoring_notification_due(&monitor, "NORMAL", 3));
 }
 
+/*
+ * Start the test program here. PlatformIO excludes production src files for this test build.
+ */
 void app_main(void)
 {
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -107,6 +120,6 @@ void app_main(void)
     RUN_TEST(test_error_reset_breaks_streak);
     RUN_TEST(test_repeated_dry_waits_fifteen_minutes);
     RUN_TEST(test_dry_and_wet_have_independent_cooldowns);
-RUN_TEST(test_cooldown_does_not_block_recovery);
+    RUN_TEST(test_cooldown_does_not_block_recovery);
     UNITY_END();
 }

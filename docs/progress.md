@@ -56,6 +56,8 @@ The current firmware uses GPIO1 and GPIO2.
 | 277b9ad | Enabled TLS certificate validity-date checks |
 | a393270 | Added sensor-value checks and documented hardware regression results |
 
+Later recorded checkpoints include `1b65beb` (freshness guard), `c67cb27` (shadow-variable cleanup), `d7fe5ad` (comprehensive README), `f45146c` (six-test evidence), `67f1157` (matching four-channel event), and `e6a83d0` (technical report and PDF).
+
 ## Environment and flash configuration
 
 Observed build environment:
@@ -211,9 +213,15 @@ The recovery excerpt does not establish first-read-after-boot behavior.
 - [Sensor validation regression](results/sensor-validation-test.md):
   three-state operation continued; intermittent DHT11 timeouts recovered.
 
+## Documentation review
+
+The [documentation guide](README.md), [code guide](code-guide.md), [rubric checklist](rubric-checklist.md), [verification plan](test-plan.md), and [results index](results/README.md) connect implementation files to recorded observations. Result summaries state acceptance checks and limits without replacing the original logs.
+
+The [matching four-channel test](results/four-channel-delivery-test.md) records one NORMAL event visible in all four recipients. The [freshness experiment](results/stale-sample-test.md), [compiler check](results/compiler-build-check.md), and [versioned static analysis](results/static-analysis.md) document additional verification. Source comments explain component interfaces, ownership, timing, and error handling; they do not add runtime features.
+
 ## Technical report
 
-A complete editable [report](technical-report.md) and rendered [PDF](technical-report.pdf) were prepared for Yestin John Paraguya, Kenneth Restauro, and Regine Bermudo, BCA152 Microcontrollers — B186. The report includes methods, observed results, numbered figures/tables, requirement coverage, limitations, and references. Author review and the final demonstration remain.
+A complete editable [report](technical-report.md) and rendered [PDF](technical-report.pdf) were prepared for Yestin John Paraguya, Kenneth Restauro, and Regine Bermudo, BCA152 Microcontrollers — B186. The report includes methods, observed results, numbered figures/tables, requirement coverage, limitations, and references. The builder accepted the report presentation. Final team/submission review and the demonstration remain; the video was deferred to a later session.
 
 ## Remaining work
 
@@ -222,7 +230,7 @@ A complete editable [report](technical-report.md) and rendered [PDF](technical-r
 - Test rejection of out-of-range and nonfinite sensor values.
 - Extend freshness-boundary/notification-age and message-formatting tests.
 - Test skipped-sample handling, queue overflow, and task stack margins.
-- Record the analyzer version and extend static analysis beyond src.
+- Extend static analysis beyond `src`; the documentation-review run verified Cppcheck 2.11 with 0 high, 0 medium, and 2 low findings.
 - Investigate intermittent DHT11 timeouts.
 - Review retry and service-error handling for Discord, Telegram, and Gmail.
 - Document how to replace saved Wi-Fi credentials.

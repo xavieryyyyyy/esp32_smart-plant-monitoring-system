@@ -1,4 +1,15 @@
-﻿# Monitoring unit tests
+# Monitoring unit tests
+
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T4 / monitoring logic |
+| Method | Six Unity cases on ESP32-S3; historical three-case baseline retained |
+| Acceptance check | Threshold, confirmation/reset, independent cooldown, and recovery assertions pass. |
+| Outcome and scope | Six cases passed; raw conversion and message formatting are not covered. |
 
 Command: pio test -f test_monitoring
 Framework: Unity

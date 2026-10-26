@@ -1,5 +1,16 @@
 # ESP32-to-Discord delivery test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T6, T7 / Discord integration |
+| Method | Real service request and recipient screenshot |
+| Acceptance check | A confirmed state is accepted by Discord and visible with matching fields. |
+| Outcome and scope | Delivery observed; service-error and rate-limit cases remain open. |
+
 ## Initial failure
 Discord HTTPS failed with:
 "No matching trusted root certificate found."
@@ -28,3 +39,7 @@ Kept certificate verification enabled.
   their relationship to uploads or restarts was not established.
 - Discord retries, rate-limit handling, and failure paths remain untested.
 - Certificate-chain contents were not independently captured.
+
+## Later shared-event comparison
+
+The [four-channel delivery record](four-channel-delivery-test.md) compares one later event across all four selected recipients. It supplements this historical integration record without changing the event documented above.

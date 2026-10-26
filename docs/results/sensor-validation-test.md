@@ -1,5 +1,16 @@
 # Sensor validation regression test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T1, T3 / acquisition regression |
+| Method | Normal hardware operation with intermittent DHT timeouts |
+| Acceptance check | Valid readings continue and failed DHT transactions do not publish misleading measurements. |
+| Outcome and scope | Regression behavior observed; out-of-range/nonfinite rejection is implemented but not injected. |
+
 ## Changes
 - Reject ADC values outside 0–4095.
 - Reject nonfinite temperature or humidity.

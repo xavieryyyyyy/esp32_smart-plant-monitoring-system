@@ -1,5 +1,16 @@
 # First ESP32-to-Slack delivery test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T1, T7 / Slack integration |
+| Method | Historical real delivery and later timestamped message |
+| Acceptance check | Accepted requests have matching visible Slack messages. |
+| Outcome and scope | Observed for recorded events; the early duplicate cause remains unconfirmed. |
+
 ## Observed results
 - Clock synchronized through SNTP.
 - TLS log reported: Certificate validated.
@@ -15,8 +26,7 @@
   separate boots or occurred during one run is not yet established.
 - Measurement timestamps were added and tested subsequently;
   see the measurement timestamp test below.
-- Bounded delivery retries, rate-limit handling, and cooldown
-  remain pending.
+- At this first-delivery checkpoint, retry/rate handling and cooldown were not yet verified. Later evidence is in the [retry-policy record](slack-retry-test.md) and [cooldown record](notification-cooldown-test.md). Their stated limits still apply.
 - Local webhook credentials are excluded from Git.
 
 ## NORMAL transition test
@@ -50,3 +60,7 @@ This verifies the synchronized-time path. The unsynchronized-time
 fallback and delayed-queue timestamp preservation remain untested.
 
 ![Timestamped Slack message](slack-timestamp-delivery.png)
+
+## Later shared-event comparison
+
+The [four-channel delivery record](four-channel-delivery-test.md) compares one later event across all four selected recipients. It supplements this historical integration record without changing the event documented above.

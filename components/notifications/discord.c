@@ -1,3 +1,8 @@
+/*
+ * This file sends the notification task's message to a Discord webhook over HTTPS.
+ * A webhook is the private address where Discord accepts our message.
+ * Check Wi-Fi and the clock first, then make one send attempt per function call.
+ */
 #include "notifications.h"
 #include "config.local.h"
 #include "connectivity.h"
@@ -11,45 +16,44 @@
 
 esp_err_t notifications_send_discord(const char *message)
 {
-    if (message == NULL || message[0] == '\0' ||
-        strlen(message) > 2000) {
+    if (message == NULL || message[0] == '\0' || strlen(message) > 2000) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!connectivity_is_ready() ||
-        !connectivity_time_is_ready()) {
+    if (!connectivity_is_ready() || !connectivity_time_is_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
 
     const char *url = DISCORD_WEBHOOK_URL;
     const char *prefix = "https://discord.com/api/webhooks/";
 
-    if (strncmp(url, prefix, strlen(prefix)) != 0 ||
-        strstr(url, "REPLACE_ME") != NULL ||
-        strchr(url, '?') != NULL ||
-        strchr(url, '#') != NULL) {
+    if (strncmp(url, prefix, strlen(prefix)) != 0 || strstr(url, "REPLACE_ME") != NULL ||
+        strchr(url, '?') != NULL || strchr(url, '#') != NULL) {
         ESP_LOGE("DISCORD", "Configure a plain Discord webhook URL");
         return ESP_ERR_INVALID_ARG;
     }
 
+    /*
+     * Add wait=true so Discord returns a response to our send.
+     * The check above rejects URLs that already have ? or # parts.
+     */
     char request_url[512];
-    int length = snprintf(request_url, sizeof(request_url),
-                          "%s?wait=true", url);
+    int length = snprintf(request_url, sizeof(request_url), "%s?wait=true", url);
 
     if (length < 0 || length >= (int)sizeof(request_url)) {
         return ESP_ERR_INVALID_SIZE;
     }
 
+    /* Build Discord's JSON message. JSON stores text under field names such as content. */
     cJSON *json = cJSON_CreateObject();
     if (json == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
-    cJSON *mentions = cJSON_AddObjectToObject(
-        json, "allowed_mentions");
+    /* Keep mentions disabled so message text cannot accidentally alert users or roles. */
+    cJSON *mentions = cJSON_AddObjectToObject(json, "allowed_mentions");
 
-    if (mentions == NULL ||
-        cJSON_AddArrayToObject(mentions, "parse") == NULL ||
+    if (mentions == NULL || cJSON_AddArrayToObject(mentions, "parse") == NULL ||
         cJSON_AddStringToObject(json, "content", message) == NULL) {
         cJSON_Delete(json);
         return ESP_ERR_NO_MEM;
@@ -62,6 +66,7 @@ esp_err_t notifications_send_discord(const char *message)
         return ESP_ERR_NO_MEM;
     }
 
+    /* Check Discord's certificate and stop this request if it takes too long. */
     esp_http_client_config_t config = {
         .url = request_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -76,17 +81,14 @@ esp_err_t notifications_send_discord(const char *message)
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t result = esp_http_client_set_method(
-        client, HTTP_METHOD_POST);
+    esp_err_t result = esp_http_client_set_method(client, HTTP_METHOD_POST);
 
     if (result == ESP_OK) {
-        result = esp_http_client_set_header(
-            client, "Content-Type", "application/json");
+        result = esp_http_client_set_header(client, "Content-Type", "application/json");
     }
 
     if (result == ESP_OK) {
-        result = esp_http_client_set_post_field(
-            client, body, strlen(body));
+        result = esp_http_client_set_post_field(client, body, strlen(body));
     }
 
     if (result == ESP_OK) {
@@ -102,6 +104,9 @@ esp_err_t notifications_send_discord(const char *message)
         }
     }
 
+    /*
+     * Close the connection and free the temporary JSON text before returning the result.
+     */
     esp_http_client_cleanup(client);
     cJSON_free(body);
 

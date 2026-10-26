@@ -1,3 +1,10 @@
+/*
+ * This file sends the notification task's message to Slack over HTTPS.
+ * It builds JSON, a text format with named fields such as "text".
+ * TLS checks Slack's certificate and protects the network connection.
+ * For selected temporary failures, it waits and tries again, up to three attempts.
+ * The webhook URL is a secret. Keep it out of logs and public firmware files.
+ */
 #include "notifications.h"
 #include "config.local.h"
 #include "connectivity.h"
@@ -18,12 +25,14 @@ typedef struct {
     int retry_after_seconds;
 } slack_response_t;
 
+/*
+ * Slack may send Retry-After: a number of seconds to wait before another request.
+ * Save it only if it is a valid whole number. -1 means we do not know the wait.
+ */
 static esp_err_t slack_http_event(esp_http_client_event_t *event)
 {
-    if (event->event_id != HTTP_EVENT_ON_HEADER ||
-        event->user_data == NULL ||
-        event->header_key == NULL ||
-        event->header_value == NULL) {
+    if (event->event_id != HTTP_EVENT_ON_HEADER || event->user_data == NULL ||
+        event->header_key == NULL || event->header_value == NULL) {
         return ESP_OK;
     }
 
@@ -34,10 +43,7 @@ static esp_err_t slack_http_event(esp_http_client_event_t *event)
         errno = 0;
         long seconds = strtol(event->header_value, &end, 10);
 
-        if (errno == 0 &&
-            end != event->header_value &&
-            *end == '\0' &&
-            seconds >= 0 &&
+        if (errno == 0 && end != event->header_value && *end == '\0' && seconds >= 0 &&
             seconds <= INT_MAX) {
             response->retry_after_seconds = (int)seconds;
         }
@@ -46,19 +52,21 @@ static esp_err_t slack_http_event(esp_http_client_event_t *event)
     return ESP_OK;
 }
 
-static esp_err_t slack_send_once(
-    const char *message, int *http_status, int *retry_after)
+/*
+ * Try one Slack request. Return its HTTP status and any server-supplied wait time.
+ * notifications_send_slack() below uses these values to decide whether to try again.
+ */
+static esp_err_t slack_send_once(const char *message, int *http_status, int *retry_after)
 {
     *http_status = 0;
     *retry_after = -1;
-
 
     if (message == NULL || message[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!connectivity_is_ready() ||
-        !connectivity_time_is_ready()) {
+    /* Skip this send if Wi-Fi or the clock is not ready for a secure request. */
+    if (!connectivity_is_ready() || !connectivity_time_is_ready()) {
         ESP_LOGW("SLACK", "Wi-Fi or synchronized time unavailable");
         return ESP_ERR_INVALID_STATE;
     }
@@ -66,13 +74,15 @@ static esp_err_t slack_send_once(
     const char *url = SLACK_WEBHOOK_URL;
     const char *prefix = "https://hooks.slack.com/services/";
 
-    if (strncmp(url, prefix, strlen(prefix)) != 0 ||
-        strstr(url, "REPLACE_ME") != NULL ||
+    if (strncmp(url, prefix, strlen(prefix)) != 0 || strstr(url, "REPLACE_ME") != NULL ||
         strstr(url, "PASTE_") != NULL) {
         ESP_LOGE("SLACK", "Configure the local webhook URL first");
         return ESP_ERR_INVALID_ARG;
     }
 
+    /*
+     * Build the request Slack expects: a JSON object with our message in its text field.
+     */
     cJSON *json = cJSON_CreateObject();
     if (json == NULL) {
         return ESP_ERR_NO_MEM;
@@ -91,9 +101,12 @@ static esp_err_t slack_send_once(
     }
 
     slack_response_t response = {
-    .retry_after_seconds = -1,
-};
+        .retry_after_seconds = -1,
+    };
 
+    /*
+     * Use trusted certificates, a ten-second request timeout, and no automatic redirects.
+     */
     esp_http_client_config_t config = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -109,17 +122,14 @@ static esp_err_t slack_send_once(
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t result = esp_http_client_set_method(
-        client, HTTP_METHOD_POST);
+    esp_err_t result = esp_http_client_set_method(client, HTTP_METHOD_POST);
 
     if (result == ESP_OK) {
-        result = esp_http_client_set_header(
-            client, "Content-Type", "application/json");
+        result = esp_http_client_set_header(client, "Content-Type", "application/json");
     }
 
     if (result == ESP_OK) {
-        result = esp_http_client_set_post_field(
-            client, body, strlen(body));
+        result = esp_http_client_set_post_field(client, body, strlen(body));
     }
 
     if (result == ESP_OK) {
@@ -136,6 +146,9 @@ static esp_err_t slack_send_once(
         }
     }
 
+    /*
+     * Save the server wait value, close the connection, and release temporary message memory.
+     */
     *retry_after = response.retry_after_seconds;
     esp_http_client_cleanup(client);
     cJSON_free(body);
@@ -143,24 +156,35 @@ static esp_err_t slack_send_once(
     return result;
 }
 
+/*
+ * The notification task calls this function for each message.
+ * It remembers Slack's wait rules between calls, but does not save messages across restarts.
+ */
 esp_err_t notifications_send_slack(const char *message)
 {
-    /* Used only by the single notification task. */
+    /*
+     * static keeps these values between calls. Only the one notification task uses them.
+     */
     static int64_t next_request_us = 0;
     static bool rate_limit_unknown = false;
 
     if (rate_limit_unknown) {
-        ESP_LOGE("SLACK",
-                 "Sending paused until restart: invalid Retry-After");
+        ESP_LOGE("SLACK", "Sending paused until restart: invalid Retry-After");
         return ESP_ERR_INVALID_STATE;
     }
 
+    /*
+     * Try at most three times. Return earlier if it works or the error should not be retried.
+     */
     for (int attempt = 1; attempt <= 3; attempt++) {
         int64_t remaining = next_request_us - esp_timer_get_time();
 
+        /*
+         * Do not spend more than thirty seconds on this wait. A later call still sees the deadline.
+         * This limit applies to this wait, not to the combined time for all services.
+         */
         if (remaining > 30000000LL) {
-            ESP_LOGW("SLACK",
-                     "Server wait exceeds 30-second task budget");
+            ESP_LOGW("SLACK", "Server wait exceeds 30-second task budget");
             return ESP_ERR_TIMEOUT;
         }
 
@@ -175,8 +199,7 @@ esp_err_t notifications_send_slack(const char *message)
 
         ESP_LOGI("SLACK", "Attempt %d/3", attempt);
 
-        esp_err_t result =
-            slack_send_once(message, &status, &retry_after);
+        esp_err_t result = slack_send_once(message, &status, &retry_after);
 
         int64_t now = esp_timer_get_time();
         next_request_us = now + 1000000LL;
@@ -185,38 +208,37 @@ esp_err_t notifications_send_slack(const char *message)
             return ESP_OK;
         }
 
+        /*
+         * 429 means Slack asked us to slow down. Use its Retry-After time.
+         * If that time is missing/invalid, pause Slack sending until the ESP32 restarts.
+         */
         if (status == 429) {
             if (retry_after < 0) {
                 rate_limit_unknown = true;
-                ESP_LOGE("SLACK",
-                         "Missing/invalid Retry-After; sending paused");
+                ESP_LOGE("SLACK", "Missing/invalid Retry-After; sending paused");
                 return result;
             }
 
             int seconds = retry_after > 0 ? retry_after : 1;
             next_request_us = now + (int64_t)seconds * 1000000LL;
 
-            ESP_LOGW("SLACK", "Rate limited; wait at least %d seconds",
-                     seconds);
+            ESP_LOGW("SLACK", "Rate limited; wait at least %d seconds", seconds);
         } else {
-            bool temporary =
-                status == 408 ||
-                (status >= 500 && status <= 599) ||
-                (status == 0 &&
-                 result != ESP_ERR_INVALID_ARG &&
-                 result != ESP_ERR_INVALID_STATE &&
-                 result != ESP_ERR_NO_MEM);
+            /*
+             * Retry selected timeouts, server errors, and connection failures. Stop on other errors.
+             */
+            bool temporary = status == 408 || (status >= 500 && status <= 599) ||
+                             (status == 0 && result != ESP_ERR_INVALID_ARG &&
+                              result != ESP_ERR_INVALID_STATE && result != ESP_ERR_NO_MEM);
 
             if (!temporary) {
                 ESP_LOGW("SLACK", "Not retrying this failure");
                 return result;
             }
 
-            next_request_us =
-                now + (int64_t)(attempt * 2) * 1000000LL;
+            next_request_us = now + (int64_t)(attempt * 2) * 1000000LL;
 
-            ESP_LOGW("SLACK", "Temporary failure: %s",
-                     esp_err_to_name(result));
+            ESP_LOGW("SLACK", "Temporary failure: %s", esp_err_to_name(result));
         }
 
         if (attempt == 3) {

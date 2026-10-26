@@ -6,7 +6,9 @@
 
 An ESP32-S3 reads a potentiometer and a DHT11 every five seconds, confirms changes in simulated moisture, and sends condition updates through four Internet services. Acquisition, monitoring, and delivery run in separate FreeRTOS tasks.
 
-**BCA152 Microcontrollers · Project 1 · MSU–IIT**  
+**BCA152 Microcontrollers · B186 · Project 1 · MSU–IIT**<br>
+Yestin John Paraguya · Kenneth Restauro · Regine Bermudo
+
 [Repository](https://github.com/xavieryyyyyy/esp32_smart-plant-monitoring-system) · [Development record](docs/progress.md) · [Technical report](docs/technical-report.pdf) · [Test evidence](#verification) · [Submission checklist](#lab-requirements)
 
 > **Hardware and channel adaptations**  
@@ -37,7 +39,7 @@ No external application server, MQTT broker, cloud database, custom mobile app, 
 | Time display | UTC measurement time captured at acquisition start |
 | Quality checks | Six monitoring tests reported passing; clean build; Cppcheck review |
 
-The assembly photograph is included below. The final report, demonstration video, and several fault-path checks remain open. The [requirement matrix](#lab-requirements) records these gaps; this README does not claim complete lab acceptance.
+The assembly photograph, editable technical report, and rendered PDF are included. The demonstration video is deferred, and several fault-path checks remain open. The [rubric checklist](docs/rubric-checklist.md) maps evidence and gaps to the original grading categories; it does not predict a grade or claim complete lab acceptance.
 
 <a id="hardware"></a>
 ## <img src="docs/assets/readme/icons/Cpu.svg" width="24" height="24" alt=""> Hardware and environment
@@ -57,6 +59,7 @@ The assembly photograph is included below. The final report, demonstration video
 | Tool or setting | Observed value |
 |---|---|
 | PlatformIO Core | 6.2.0 |
+| Cppcheck | 2.11; reported scope `src` |
 | PlatformIO Espressif32 platform | 7.1.2 |
 | ESP-IDF | 6.1.0 |
 | Xtensa toolchain package | `15.2.0+20251204` |
@@ -489,7 +492,7 @@ Select-String -Path build-check.log -Pattern 'warning:|warning!'
 pio check --skip-packages
 ```
 
-The clean build succeeded and warning search returned no matches. Cppcheck passed with **0 high, 0 medium, 2 low** after a shadowed timestamp was removed. The remaining `unusedFunction` reports are `app_main` (ESP-IDF entry point) and `app_tasks_start` (called from `src/main.c`). Reported scope is `src`, not verified custom-component coverage. Cppcheck's version was not captured and remains to be recorded.
+The clean build succeeded and warning search returned no matches. Cppcheck passed with **0 high, 0 medium, 2 low** after a shadowed timestamp was removed. The remaining `unusedFunction` reports are `app_main` (ESP-IDF entry point) and `app_tasks_start` (called from `src/main.c`). Reported scope is `src`, not verified custom-component coverage. A fresh review verified Cppcheck **2.11**; see the [analysis record](docs/results/static-analysis.md) and [captured output](docs/results/static-analysis-output.txt).
 
 [Compiler record](docs/results/compiler-build-check.md) · [Analysis record](docs/results/static-analysis.md). `build-check.log` was kept local; the repository does not contain every raw capture.
 
@@ -559,7 +562,7 @@ Assignment source: **BCA152 Project No. 1: Smart Plant Monitoring System Using E
 | Requirement | Implementation / evidence | Gap or adaptation |
 |---|---|---|
 | System design and notification policy | [Overview](#overview), [policy](#policy), Git history | Generic reason labels; no periodic summaries |
-| Block, wiring, task, and data-flow diagrams | [Wiring](#wiring), [architecture](#architecture) | Assembly photo included; PDF integration pending |
+| Block, wiring, task, and data-flow diagrams | [Wiring](#wiring), [architecture](#architecture) | Assembly photo and four diagram types included in the PDF |
 | Board-specific GPIO map | GPIO1 ADC1 CH0; GPIO2 DHT11; 3V3/GND table | Board marking visible in assembly photo; not all pin labels are readable |
 | Capacitive sensor and DHT22 | Potentiometer and DHT11 | Instructor-approved adaptation reported |
 | Soil calibration and credible units | Raw ranges, simulated mapping, Celsius and % RH | Dry/wet soil endpoints absent |
@@ -572,15 +575,33 @@ Assignment source: **BCA152 Project No. 1: Smart Plant Monitoring System Using E
 | TLS, secrets, timeouts, rate limits | Certificate bundle/date checks; private config; Slack retries | Other-channel handling incomplete; at-rest secrets not hardened |
 | Missing/implausible/invalid/stale data | Driver results, finite/RH/raw checks, monotonic age guard | Numeric injection and physical-fault coverage incomplete |
 | Unit tests: conversion, classification, persistence, formatting | Six classification/confirmation/reset/cooldown cases | Raw conversion and formatting tests absent; no separate hysteresis bands |
-| Integration/reliability/static analysis | Linked experiments, compiler review, Cppcheck | Analyzer version, component coverage, endurance, stack/overflow work pending |
+| Integration/reliability/static analysis | Linked experiments, compiler review, Cppcheck | Cppcheck 2.11 recorded; component coverage, endurance, stack/overflow work pending |
 | Reproducible source and safe config | Build guide, manifests, lock file, private/example split | Platform unpinned; clean-clone build not verified in this documentation task |
-| Technical report PDF | [Rendered report](docs/technical-report.pdf), [editable source](docs/technical-report.md), and [rebuild instructions](docs/report-source/README.md) | Prepared from recorded implementation/evidence; author review and final demonstration remain |
+| Technical report PDF | [Rendered report](docs/technical-report.pdf), [editable source](docs/technical-report.md), and [rebuild instructions](docs/report-source/README.md) | Prepared and reviewed by the builder; final team/submission review and demonstration remain |
 | Demonstration | Reproduction sequence above | Video/live demonstration and final materials pending |
 
 The original PDF assesses its channels independently. Discord is not labeled WhatsApp, nor Slack labeled X. The builder's reported permission for substitutions should accompany the submission explanation.
 
 <a id="repository-map"></a>
 ## <img src="docs/assets/readme/icons/FolderTree.svg" width="24" height="24" alt=""> Repository map
+
+Start with the [code guide](docs/code-guide.md) for a file-by-file explanation, ownership rules, error paths, and serial-log meanings. The same connections are summarized in Appendix C of the [technical report](docs/technical-report.pdf).
+
+| Read in this order | What it does | Where its output goes |
+|---|---|---|
+| `src/main.c` | Starts tasks and connectivity | `app_tasks_start()` and `connectivity_start()` |
+| `components/sensors/include/sensors.h` | Defines the sample shared by tasks | Acquisition, monitoring, notification snapshots |
+| `components/sensors/sensors.c` | Reads GPIO1 ADC and GPIO2 DHT11; validates measurements | `sensor_task` puts samples in `reading_queue` |
+| `components/monitoring/monitoring.c` | Converts, classifies, confirms, checks per-state cooldown | `monitoring_task` queues eligible transition snapshots |
+| `src/app_tasks.c` | Owns the application queues/tasks and message formatting | `notification_task` calls four senders sequentially |
+| `components/connectivity/connectivity.c` | BLE provisioning, Wi-Fi recovery, SNTP, readiness flags | Acquisition timestamps and sender readiness queries |
+| `components/notifications/*.c` | Slack/Discord/Telegram HTTPS and Gmail SMTP | External services, then recipient applications |
+| `test/test_monitoring/test_main.c` | Six monitoring logic tests | Unity results; test firmware replaces the application |
+
+Headers declare interfaces; CMake compiles sources and exposes required components; `idf_component.yml` files declare managed packages. The [build-file guide](docs/code-guide.md#build-and-configuration-files) explains why all three are needed.
+
+Documentation entry points: [guide](docs/README.md), [code guide](docs/code-guide.md), [grading coverage](docs/rubric-checklist.md), [test/access plan](docs/test-plan.md), and [results index](docs/results/README.md).
+
 
 ```text
 .
@@ -714,7 +735,7 @@ One run logged advertising error `rc = 30` during cleanup after acceptance/IP ac
 | Freshness | Event age before each sender; queue waiting can produce old messages |
 | Connectivity | Reprovision trigger, prolonged outage and endurance tests |
 | API resilience | Other-channel retry/rate/error handling; Slack parser/failure coverage |
-| Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, analyzer version |
+| Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, custom-component analysis |
 | Submission | Author review of the completed report and video/live demo |
 
 These items remain visible so a reviewer can separate implementation from proof. Changes need their own reviewed milestones and repeat-test evidence.
@@ -780,5 +801,3 @@ Manifests declare direct dependencies; the lock file records versions/hashes. Th
 ---
 
 [Back to contents](#contents) · [Development record](docs/progress.md) · [Test records](docs/results/)
-
-

@@ -1,0 +1,2 @@
+# PDF reports are binary artifacts; avoid line-ending conversion and text diffs.
+*.pdf binary

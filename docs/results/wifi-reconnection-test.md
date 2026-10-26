@@ -1,5 +1,16 @@
 # Wi-Fi reconnection test
 
+[Results index](README.md) · [Verification plan](../test-plan.md) · [Rubric checklist](../rubric-checklist.md)
+
+## Test summary
+
+| Field | Record |
+|---|---|
+| Coverage | T5, T8 / connection recovery |
+| Method | One device-originated disconnect and cleanup observation |
+| Acceptance check | Detect the disconnect and regain an IP address without restarting the ESP32. |
+| Outcome and scope | Recovery observed in about 4.83 seconds; router outage and endurance remain open. |
+
 Baseline: a6509fe with a temporary device-disconnect test task.
 
 ## Procedure

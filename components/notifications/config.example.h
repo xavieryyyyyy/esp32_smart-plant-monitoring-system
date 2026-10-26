@@ -1,3 +1,7 @@
+/*
+ * Copy this template to config.local.h and put real settings in that private copy.
+ * The four sender files read the private copy. Keep this example full of placeholders.
+ */
 #pragma once
 
 #define SLACK_WEBHOOK_URL "https://hooks.slack.com/services/REPLACE_ME"

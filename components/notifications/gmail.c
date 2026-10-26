@@ -1,3 +1,10 @@
+/*
+ * This file sends the notification task's message as an email through Gmail.
+ * SMTP is the conversation used to submit email; TLS protects the connection.
+ * The steps are: connect, say hello, sign in, name sender/recipient, send text, close.
+ * Only reply codes/errors are printed; the password is not printed.
+ * Each call tries one email session. Failed emails are not automatically resent.
+ */
 #include "notifications.h"
 #include "config.local.h"
 #include "connectivity.h"
@@ -14,8 +21,11 @@
 #include "mbedtls/base64.h"
 #include <time.h>
 
-static esp_err_t smtp_write_all(
-    esp_tls_t *tls, const char *data, size_t length)
+/*
+ * A network write may send only part of the text. Keep sending the part left over.
+ * Check a ten-second deadline while doing this; return an error if the connection fails.
+ */
+static esp_err_t smtp_write_all(esp_tls_t *tls, const char *data, size_t length)
 {
     size_t sent = 0;
     int64_t deadline = esp_timer_get_time() + 10000000LL;
@@ -25,13 +35,11 @@ static esp_err_t smtp_write_all(
             return ESP_ERR_TIMEOUT;
         }
 
-        ssize_t result = esp_tls_conn_write(
-            tls, data + sent, length - sent);
+        ssize_t result = esp_tls_conn_write(tls, data + sent, length - sent);
 
         if (result > 0) {
             sent += (size_t)result;
-        } else if (result == ESP_TLS_ERR_SSL_WANT_READ ||
-                   result == ESP_TLS_ERR_SSL_WANT_WRITE) {
+        } else if (result == ESP_TLS_ERR_SSL_WANT_READ || result == ESP_TLS_ERR_SSL_WANT_WRITE) {
             vTaskDelay(pdMS_TO_TICKS(10) + 1);
         } else {
             return ESP_FAIL;
@@ -41,6 +49,12 @@ static esp_err_t smtp_write_all(
     return ESP_OK;
 }
 
+/*
+ * Read Gmail's reply and check the expected three-digit number.
+ * For example, 250- means another reply line follows; 250 plus a space is the final line.
+ * Limit line size, line count, and waiting time. These limits are for this reply,
+ * not one total deadline for the whole email conversation.
+ */
 static esp_err_t smtp_expect(esp_tls_t *tls, int expected_code)
 {
     int64_t deadline = esp_timer_get_time() + 10000000LL;
@@ -55,11 +69,9 @@ static esp_err_t smtp_expect(esp_tls_t *tls, int expected_code)
             }
 
             char character;
-            ssize_t result = esp_tls_conn_read(
-                tls, &character, 1);
+            ssize_t result = esp_tls_conn_read(tls, &character, 1);
 
-            if (result == ESP_TLS_ERR_SSL_WANT_READ ||
-                result == ESP_TLS_ERR_SSL_WANT_WRITE) {
+            if (result == ESP_TLS_ERR_SSL_WANT_READ || result == ESP_TLS_ERR_SSL_WANT_WRITE) {
                 vTaskDelay(pdMS_TO_TICKS(10) + 1);
                 continue;
             }
@@ -81,21 +93,15 @@ static esp_err_t smtp_expect(esp_tls_t *tls, int expected_code)
 
         line[used] = '\0';
 
-        if (used < 6 ||
-            line[used - 2] != '\r' ||
-            line[0] < '0' || line[0] > '9' ||
-            line[1] < '0' || line[1] > '9' ||
-            line[2] < '0' || line[2] > '9') {
+        if (used < 6 || line[used - 2] != '\r' || line[0] < '0' || line[0] > '9' || line[1] < '0' ||
+            line[1] > '9' || line[2] < '0' || line[2] > '9') {
             return ESP_FAIL;
         }
 
-        int code = (line[0] - '0') * 100 +
-                   (line[1] - '0') * 10 +
-                   (line[2] - '0');
+        int code = (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
 
         if (code != expected_code) {
-            ESP_LOGW("GMAIL", "SMTP reply %d; expected %d",
-                     code, expected_code);
+            ESP_LOGW("GMAIL", "SMTP reply %d; expected %d", code, expected_code);
             return ESP_FAIL;
         }
 
@@ -112,11 +118,13 @@ static esp_err_t smtp_expect(esp_tls_t *tls, int expected_code)
     return ESP_ERR_INVALID_SIZE;
 }
 
-static esp_err_t smtp_command(
-    esp_tls_t *tls, const char *command, int expected_code)
+/*
+ * Send one email command, then wait for its expected reply.
+ * If the send failed, return that error without pretending to read a successful reply.
+ */
+static esp_err_t smtp_command(esp_tls_t *tls, const char *command, int expected_code)
 {
-    esp_err_t result = smtp_write_all(
-        tls, command, strlen(command));
+    esp_err_t result = smtp_write_all(tls, command, strlen(command));
 
     if (result != ESP_OK) {
         return result;
@@ -125,15 +133,17 @@ static esp_err_t smtp_command(
     return smtp_expect(tls, expected_code);
 }
 
-static esp_err_t smtp_send_base64(
-    esp_tls_t *tls, const char *value, int expected_code)
+/*
+ * Gmail's AUTH LOGIN step expects the login text in Base64, another text format.
+ * Base64 does not hide a password; the encrypted TLS connection protects it.
+ */
+static esp_err_t smtp_send_base64(esp_tls_t *tls, const char *value, int expected_code)
 {
     unsigned char encoded[512];
     size_t encoded_length = 0;
 
-    int encoding_result = mbedtls_base64_encode(
-        encoded, sizeof(encoded) - 3, &encoded_length,
-        (const unsigned char *)value, strlen(value));
+    int encoding_result = mbedtls_base64_encode(encoded, sizeof(encoded) - 3, &encoded_length,
+                                                (const unsigned char *)value, strlen(value));
 
     if (encoding_result != 0) {
         mbedtls_platform_zeroize(encoded, sizeof(encoded));
@@ -143,9 +153,9 @@ static esp_err_t smtp_send_base64(
     encoded[encoded_length++] = '\r';
     encoded[encoded_length++] = '\n';
 
-    esp_err_t result = smtp_write_all(
-        tls, (const char *)encoded, encoded_length);
+    esp_err_t result = smtp_write_all(tls, (const char *)encoded, encoded_length);
 
+    /* Clear the temporary Base64 login text from this array after trying to send it. */
     mbedtls_platform_zeroize(encoded, sizeof(encoded));
 
     if (result != ESP_OK) {
@@ -155,13 +165,15 @@ static esp_err_t smtp_send_base64(
     return smtp_expect(tls, expected_code);
 }
 
+/*
+ * Wait for Gmail's greeting, introduce the ESP32, then supply the email and app password.
+ */
 static esp_err_t smtp_authenticate(esp_tls_t *tls)
 {
     esp_err_t result = smtp_expect(tls, 220);
 
     if (result == ESP_OK) {
-        result = smtp_command(
-            tls, "EHLO plant-monitor.local\r\n", 250);
+        result = smtp_command(tls, "EHLO plant-monitor.local\r\n", 250);
     }
 
     if (result == ESP_OK) {
@@ -179,8 +191,11 @@ static esp_err_t smtp_authenticate(esp_tls_t *tls)
     return result;
 }
 
-static esp_err_t smtp_send_body(
-    esp_tls_t *tls, const char *message)
+/*
+ * Convert the email text to Base64 and send it in lines of at most 76 characters.
+ * The final dot on its own line tells Gmail that the email body is finished.
+ */
+static esp_err_t smtp_send_body(esp_tls_t *tls, const char *message)
 {
     size_t input_length = strlen(message);
 
@@ -196,9 +211,8 @@ static esp_err_t smtp_send_body(
     }
 
     size_t encoded_length = 0;
-    int encoding_result = mbedtls_base64_encode(
-        encoded, capacity, &encoded_length,
-        (const unsigned char *)message, input_length);
+    int encoding_result = mbedtls_base64_encode(encoded, capacity, &encoded_length,
+                                                (const unsigned char *)message, input_length);
 
     if (encoding_result != 0) {
         free(encoded);
@@ -214,8 +228,7 @@ static esp_err_t smtp_send_body(
             chunk = 76;
         }
 
-        result = smtp_write_all(
-            tls, (const char *)encoded + offset, chunk);
+        result = smtp_write_all(tls, (const char *)encoded + offset, chunk);
 
         if (result == ESP_OK) {
             result = smtp_write_all(tls, "\r\n", 2);
@@ -239,56 +252,55 @@ static esp_err_t smtp_send_body(
 
 esp_err_t notifications_send_gmail(const char *message)
 {
-    if (message == NULL || message[0] == '\0' ||
-        strlen(message) > 4096) {
+    if (message == NULL || message[0] == '\0' || strlen(message) > 4096) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!connectivity_is_ready() ||
-        !connectivity_time_is_ready()) {
+    if (!connectivity_is_ready() || !connectivity_time_is_ready()) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    /*
+     * Read private sender/recipient settings, then reject placeholders or unsafe address text.
+     */
     const char *sender = GMAIL_ADDRESS;
     const char *recipient = GMAIL_RECIPIENT;
 
-    if (strlen(sender) > 254 || strlen(recipient) > 254 ||
-        strchr(sender, '@') == NULL ||
-        strchr(recipient, '@') == NULL ||
-        strpbrk(sender, "\r\n<> \t") != NULL ||
-        strpbrk(recipient, "\r\n<> \t") != NULL ||
-        strstr(sender, "REPLACE_ME") != NULL ||
-        strstr(recipient, "REPLACE_ME") != NULL ||
-        strlen(GMAIL_APP_PASSWORD) != 16) {
+    if (strlen(sender) > 254 || strlen(recipient) > 254 || strchr(sender, '@') == NULL ||
+        strchr(recipient, '@') == NULL || strpbrk(sender, "\r\n<> \t") != NULL ||
+        strpbrk(recipient, "\r\n<> \t") != NULL || strstr(sender, "REPLACE_ME") != NULL ||
+        strstr(recipient, "REPLACE_ME") != NULL || strlen(GMAIL_APP_PASSWORD) != 16) {
         ESP_LOGE("GMAIL", "Check local email configuration");
         return ESP_ERR_INVALID_ARG;
     }
 
+    /*
+     * This Date header says when we submitted the email.
+     * The measurement time inside the message still says when the sensors were read.
+     */
     time_t now = time(NULL);
     struct tm utc;
     char date[64];
 
     if (gmtime_r(&now, &utc) == NULL ||
-        strftime(date, sizeof(date),
-                 "%a, %d %b %Y %H:%M:%S +0000", &utc) == 0) {
+        strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S +0000", &utc) == 0) {
         return ESP_FAIL;
     }
 
+    /* Build the email's From, To, Date, Subject, and text-format information. */
     char headers[1024];
-    int header_length = snprintf(
-        headers, sizeof(headers),
-        "From: <%s>\r\n"
-        "To: <%s>\r\n"
-        "Date: %s\r\n"
-        "Subject: Plant-01 condition update\r\n"
-        "MIME-Version: 1.0\r\n"
-        "Content-Type: text/plain; charset=UTF-8\r\n"
-        "Content-Transfer-Encoding: base64\r\n"
-        "\r\n",
-        sender, recipient, date);
+    int header_length = snprintf(headers, sizeof(headers),
+                                 "From: <%s>\r\n"
+                                 "To: <%s>\r\n"
+                                 "Date: %s\r\n"
+                                 "Subject: Plant-01 condition update\r\n"
+                                 "MIME-Version: 1.0\r\n"
+                                 "Content-Type: text/plain; charset=UTF-8\r\n"
+                                 "Content-Transfer-Encoding: base64\r\n"
+                                 "\r\n",
+                                 sender, recipient, date);
 
-    if (header_length < 0 ||
-        header_length >= (int)sizeof(headers)) {
+    if (header_length < 0 || header_length >= (int)sizeof(headers)) {
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -304,8 +316,8 @@ esp_err_t notifications_send_gmail(const char *message)
 
     const char *host = "smtp.gmail.com";
 
-    if (esp_tls_conn_new_sync(
-            host, strlen(host), 465, &config, tls) != 1) {
+    /* Open the protected connection to Gmail's SMTP server on port 465. */
+    if (esp_tls_conn_new_sync(host, strlen(host), 465, &config, tls) != 1) {
         ESP_LOGE("GMAIL", "TLS connection failed");
         esp_tls_conn_destroy(tls);
         return ESP_FAIL;
@@ -316,9 +328,8 @@ esp_err_t notifications_send_gmail(const char *message)
     int length;
 
     if (result == ESP_OK) {
-        length = snprintf(
-            command, sizeof(command),
-            "MAIL FROM:<%s>\r\n", sender);
+        /* Tell Gmail which account is sending the email. */
+        length = snprintf(command, sizeof(command), "MAIL FROM:<%s>\r\n", sender);
 
         if (length < 0 || length >= (int)sizeof(command)) {
             result = ESP_ERR_INVALID_SIZE;
@@ -328,9 +339,8 @@ esp_err_t notifications_send_gmail(const char *message)
     }
 
     if (result == ESP_OK) {
-        length = snprintf(
-            command, sizeof(command),
-            "RCPT TO:<%s>\r\n", recipient);
+        /* Tell Gmail which address should receive the email. */
+        length = snprintf(command, sizeof(command), "RCPT TO:<%s>\r\n", recipient);
 
         if (length < 0 || length >= (int)sizeof(command)) {
             result = ESP_ERR_INVALID_SIZE;
@@ -340,12 +350,12 @@ esp_err_t notifications_send_gmail(const char *message)
     }
 
     if (result == ESP_OK) {
+        /* Ask permission to send the email headers and body next. */
         result = smtp_command(tls, "DATA\r\n", 354);
     }
 
     if (result == ESP_OK) {
-        result = smtp_write_all(
-            tls, headers, (size_t)header_length);
+        result = smtp_write_all(tls, headers, (size_t)header_length);
     }
 
     if (result == ESP_OK) {
@@ -353,17 +363,19 @@ esp_err_t notifications_send_gmail(const char *message)
     }
 
     if (result == ESP_OK) {
+        /*
+         * Gmail accepted the submitted email. A matching inbox message is the delivery evidence.
+         */
         ESP_LOGI("GMAIL", "SMTP server accepted the email");
 
-        esp_err_t quit_result =
-            smtp_command(tls, "QUIT\r\n", 221);
+        esp_err_t quit_result = smtp_command(tls, "QUIT\r\n", 221);
 
         if (quit_result != ESP_OK) {
-            ESP_LOGW("GMAIL",
-                     "Session close failed after email acceptance");
+            ESP_LOGW("GMAIL", "Session close failed after email acceptance");
         }
     }
 
+    /* Release the connection even if a step failed, then return the send result. */
     esp_tls_conn_destroy(tls);
     return result;
 }
