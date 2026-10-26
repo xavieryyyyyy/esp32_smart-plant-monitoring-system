@@ -203,6 +203,15 @@ if (telegram_result == ESP_OK) {
     ESP_LOGW("NOTIFY", "Telegram send failed: %s",
              esp_err_to_name(telegram_result));
 }
+
+esp_err_t gmail_result = notifications_send_gmail(message);
+
+if (gmail_result == ESP_OK) {
+    ESP_LOGI("NOTIFY", "Gmail SMTP submission accepted");
+} else {
+    ESP_LOGW("NOTIFY", "Gmail send failed: %s",
+             esp_err_to_name(gmail_result));
+}
     }
 }
 

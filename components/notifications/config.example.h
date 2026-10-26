@@ -4,3 +4,6 @@
 #define DISCORD_WEBHOOK_URL "https://discord.com/api/webhooks/REPLACE_ME"
 #define TELEGRAM_BOT_TOKEN "REPLACE_ME"
 #define TELEGRAM_CHAT_ID "REPLACE_ME"
+#define GMAIL_ADDRESS "REPLACE_ME@gmail.com"
+#define GMAIL_APP_PASSWORD "REPLACE_ME"
+#define GMAIL_RECIPIENT "REPLACE_ME@gmail.com"
