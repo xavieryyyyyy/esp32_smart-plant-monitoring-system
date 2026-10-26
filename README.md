@@ -7,7 +7,7 @@
 An ESP32-S3 reads a potentiometer and a DHT11 every five seconds, confirms changes in simulated moisture, and sends condition updates through four Internet services. Acquisition, monitoring, and delivery run in separate FreeRTOS tasks.
 
 **BCA152 Microcontrollers · Project 1 · MSU–IIT**  
-[Repository](https://github.com/xavieryyyyyy/esp32_smart-plant-monitoring-system) · [Development record](docs/progress.md) · [Test evidence](#verification) · [Submission checklist](#lab-requirements)
+[Repository](https://github.com/xavieryyyyyy/esp32_smart-plant-monitoring-system) · [Development record](docs/progress.md) · [Technical report](docs/technical-report.pdf) · [Test evidence](#verification) · [Submission checklist](#lab-requirements)
 
 > **Hardware and channel adaptations**  
 > A potentiometer simulates moisture; a DHT11 measures air temperature and relative humidity. The original brief specifies a capacitive soil sensor, DHT22, Gmail, WhatsApp, Telegram, and X. This implementation uses Gmail, Telegram, Discord, and Slack. The builder reports instructor permission for these adaptations. Simulated moisture is not soil calibration, and the substituted channels are identified throughout this guide.
@@ -549,7 +549,7 @@ These four screenshots show the same Plant-01 event measured at **2026-10-26 05:
 
 About 15 seconds at a stable setting normally provides three samples regardless of sampling phase. Fast consecutive transitions can create a delivery backlog: events carry acquisition-time values, not the newest values at send time.
 
-**Still needed:** the technical report PDF and a short narrated video or instructor-directed live demonstration. No fabricated report/video link is included.
+**Technical report:** [read the PDF](docs/technical-report.pdf) or [edit the Markdown](docs/technical-report.md). The report includes all three authors, B186, captioned figures/tables, methods, results, and stated limitations. A short narrated video or instructor-directed live demonstration remains to be completed.
 
 <a id="lab-requirements"></a>
 ## <img src="docs/assets/readme/icons/ClipboardCheck.svg" width="24" height="24" alt=""> Laboratory requirements and deliverables
@@ -574,7 +574,7 @@ Assignment source: **BCA152 Project No. 1: Smart Plant Monitoring System Using E
 | Unit tests: conversion, classification, persistence, formatting | Six classification/confirmation/reset/cooldown cases | Raw conversion and formatting tests absent; no separate hysteresis bands |
 | Integration/reliability/static analysis | Linked experiments, compiler review, Cppcheck | Analyzer version, component coverage, endurance, stack/overflow work pending |
 | Reproducible source and safe config | Build guide, manifests, lock file, private/example split | Platform unpinned; clean-clone build not verified in this documentation task |
-| Technical report PDF | Not yet produced | Must cover problem, objectives, hardware, architecture, calibration, APIs, methods, results, limits |
+| Technical report PDF | [Rendered report](docs/technical-report.pdf), [editable source](docs/technical-report.md), and [rebuild instructions](docs/report-source/README.md) | Prepared from recorded implementation/evidence; author review and final demonstration remain |
 | Demonstration | Reproduction sequence above | Video/live demonstration and final materials pending |
 
 The original PDF assesses its channels independently. Discord is not labeled WhatsApp, nor Slack labeled X. The builder's reported permission for substitutions should accompany the submission explanation.
@@ -715,7 +715,7 @@ One run logged advertising error `rc = 30` during cleanup after acceptance/IP ac
 | Connectivity | Reprovision trigger, prolonged outage and endurance tests |
 | API resilience | Other-channel retry/rate/error handling; Slack parser/failure coverage |
 | Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, analyzer version |
-| Submission | PDF report and video/live demo |
+| Submission | Author review of the completed report and video/live demo |
 
 These items remain visible so a reviewer can separate implementation from proof. Changes need their own reviewed milestones and repeat-test evidence.
 

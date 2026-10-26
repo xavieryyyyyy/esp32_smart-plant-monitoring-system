@@ -211,14 +211,18 @@ The recovery excerpt does not establish first-read-after-boot behavior.
 - [Sensor validation regression](results/sensor-validation-test.md):
   three-state operation continued; intermittent DHT11 timeouts recovered.
 
+## Technical report
+
+A complete editable [report](technical-report.md) and rendered [PDF](technical-report.pdf) were prepared for Yestin John Paraguya, Kenneth Restauro, and Regine Bermudo, BCA152 Microcontrollers — B186. The report includes methods, observed results, numbered figures/tables, requirement coverage, limitations, and references. Author review and the final demonstration remain.
+
 ## Remaining work
 
-- Complete README, architecture and wiring diagrams, technical report,
-  and demonstration video.
+- Review the README and technical report before submission; complete the
+  demonstration video or instructor-directed live demonstration.
 - Test rejection of out-of-range and nonfinite sensor values.
-- Verify stale-data handling and message-formatting edge cases.
+- Extend freshness-boundary/notification-age and message-formatting tests.
 - Test skipped-sample handling, queue overflow, and task stack margins.
-- Record static-analysis/compiler-warning results.
+- Record the analyzer version and extend static analysis beyond src.
 - Investigate intermittent DHT11 timeouts.
 - Review retry and service-error handling for Discord, Telegram, and Gmail.
 - Document how to replace saved Wi-Fi credentials.
