@@ -3,25 +3,56 @@
  * app_tasks.c passes the original values; the sender files use these prepared messages.
  * No clock, sensor, network, or secret is changed here.
  */
+/*
+ * Text-format key:
+ * %s inserts prepared text, %d inserts an integer, and %.1f prints one decimal place.
+ * %% prints a literal percent sign. sizeof(buffer) includes room for the final '\0'.
+ * The adjacent quoted lines in a template join into ONE string during C compilation;
+ * they are split across source lines only so a person can read the layout.
+ * HTML tags describe Gmail/Telegram presentation. JSON keys describe chat API fields.
+ * Neither changes how monitoring confirms states or starts the fifteen-minute cooldown.
+ */
 #include "notification_format.h"
+/* Use integer limits to reject arithmetic that would overflow. */
 #include <limits.h>
+/* Check for invalid floating-point values, including NaN and infinity. */
 #include <math.h>
+/* Read a variable list of formatting arguments, as printf-style functions do. */
 #include <stdarg.h>
+/* Use explicit-width integers such as uint32_t and int64_t for counters and timers. */
 #include <stdint.h>
+/* Format bounded text with snprintf(), or use file/console I/O in host tests. */
 #include <stdio.h>
+/* Measure, compare, copy, or search text and byte arrays. */
 #include <string.h>
 
+/* Group related fields into one value so callers/queues keep the correct pieces together. */
 typedef struct {
+    /* Reserve the readable captured-time text, including the unavailable-clock alternative. */
     char measured[96];
+    /* Reserve the formatted simulated percentage, such as 26%, including the final zero byte. */
     char moisture[16];
+    /* Reserve a Celsius value or the fixed Unavailable text for a failed DHT read. */
     char temperature[32];
+    /* Reserve a humidity percentage or the fixed Unavailable text for a failed DHT read. */
     char humidity[24];
+    /*
+     * Point to the UTC+08:00 suffix when the captured time is valid, or an empty suffix
+     * otherwise.
+     */
     const char *offset;
+    /* Point to the state-specific pale Gmail badge background color. */
     const char *badge_background;
+    /* Point to the matching darker Gmail badge text color. */
     const char *badge_foreground;
+    /* Keep the state's integer RGB color used by the native Discord embed. */
     int color;
 } display_fields_t;
 
+/*
+ * Map month indexes 0..11 to fixed English names so display text does not depend on the device
+ * locale.
+ */
 static const char *const months[] = {"January",   "February", "March",    "April",
                                      "May",       "June",     "July",     "August",
                                      "September", "October",  "November", "December"};
@@ -29,108 +60,203 @@ static const char *const months[] = {"January",   "February", "March",    "April
 /* Leave an empty output on failure so a caller cannot accidentally send cut-off text. */
 static esp_err_t write_text(char *text, size_t size, const char *format, ...)
     __attribute__((format(printf, 3, 4)));
+/* Safely fill the caller's text array. Report an error instead of returning cut-off text. */
 static esp_err_t write_text(char *text, size_t size, const char *format, ...)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (text == NULL || size == 0)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /*
+     * Start/leave an empty C string so a failed format cannot expose old or partial message
+     * text.
+     */
     text[0] = '\0';
+    /* Hold the extra printf-style arguments supplied after the format string. */
     va_list args;
+    /* Start reading the extra formatting arguments after the named format parameter. */
     va_start(args, format);
+    /* Format the arguments with a size limit; its return value reports the full required length. */
     int length = vsnprintf(text, size, format, args);
+    /* Finish using the variable-argument list after formatting. */
     va_end(args);
+    /* Reject a formatting error or text that would not fit, including its string-ending byte. */
     if (length < 0 || (size_t)length >= size) {
+        /*
+         * Start/leave an empty C string so a failed format cannot expose old or partial message
+         * text.
+         */
         text[0] = '\0';
+        /* Report that the available buffer/format limit could not safely hold this data. */
         return ESP_ERR_INVALID_SIZE;
     }
+    /* Finish successfully; the caller may now use this function's output. */
     return ESP_OK;
 }
 
+/* Turn the captured UTC time into PhST text. This formats a copy and never resets the clock. */
 esp_err_t notification_format_time(const notification_message_t *message, char *text, size_t size)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (text == NULL || size == 0)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /*
+     * Start/leave an empty C string so a failed format cannot expose old or partial message
+     * text.
+     */
     text[0] = '\0';
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (message == NULL)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Use an explicit unavailable message rather than inventing an acquisition time. */
     if (!message->time_valid)
+        /* Display a truthful missing-clock explanation instead of inventing a measurement date. */
         return write_text(text, size, "Unavailable (clock not synchronized)");
 
     /* Add eight hours to a COPY. Never change the captured timestamp or global timezone. */
     int64_t seconds = (int64_t)message->measured_at;
+    /* Guard the eight-hour addition so a very large timestamp cannot overflow the integer. */
     if (seconds > INT64_MAX - 28800)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Add 28,800 seconds (8 hours) to the copy; keep the original captured timestamp unchanged. */
     int64_t phst_seconds = seconds + 28800;
+    /*
+     * Convert the shifted seconds to the time_t type required by the calendar conversion
+     * function.
+     */
     time_t phst = (time_t)phst_seconds;
+    /* Reserve calendar fields for the shifted PhST copy without changing the system clock. */
     struct tm local;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if ((int64_t)phst != phst_seconds || gmtime_r(&phst, &local) == NULL || local.tm_mon < 0 ||
         local.tm_mon > 11 || local.tm_year > INT_MAX - 1900)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Reduce 24-hour clock hours to the 12-hour range; zero is displayed as 12 below. */
     int hour = local.tm_hour % 12;
+    /* Format day/month/year and 12-hour PhST time; %02d keeps minutes/seconds two digits wide. */
     return write_text(text, size, "%d %s %d, %d:%02d:%02d %s PhST", local.tm_mday,
                       months[local.tm_mon], local.tm_year + 1900, hour == 0 ? 12 : hour,
                       local.tm_min, local.tm_sec, local.tm_hour < 12 ? "AM" : "PM");
 }
 
+/* Validate one message and prepare the display strings/colors reused by all four layouts. */
 static esp_err_t prepare(const notification_message_t *message, display_fields_t *fields)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (message == NULL || message->state == NULL || message->moisture_percent < 0 ||
         message->moisture_percent > 100)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Compare the actual characters; strcmp returns zero when both state words match. */
     if (strcmp(message->state, "DRY") == 0) {
+        /* Choose this state's integer RGB accent color for Discord's native card. */
         fields->color = 0xd5a34b;
+        /* Choose this state's pale background color for the Gmail status badge. */
         fields->badge_background = "#fbefcf";
+        /* Choose the darker readable text color for that Gmail badge. */
         fields->badge_foreground = "#6c4308";
+        /* Compare the actual characters; strcmp returns zero when both state words match. */
     } else if (strcmp(message->state, "NORMAL") == 0) {
+        /* Choose this state's integer RGB accent color for Discord's native card. */
         fields->color = 0x3d8061;
+        /* Choose this state's pale background color for the Gmail status badge. */
         fields->badge_background = "#e4f2e8";
+        /* Choose the darker readable text color for that Gmail badge. */
         fields->badge_foreground = "#235c3a";
+        /* Compare the actual characters; strcmp returns zero when both state words match. */
     } else if (strcmp(message->state, "WET") == 0) {
+        /* Choose this state's integer RGB accent color for Discord's native card. */
         fields->color = 0x4089b8;
+        /* Choose this state's pale background color for the Gmail status badge. */
         fields->badge_background = "#e7f1fb";
+        /* Choose the darker readable text color for that Gmail badge. */
         fields->badge_foreground = "#205578";
     } else {
         /* Only these three fixed words may enter the service's formatting tags. */
         return ESP_ERR_INVALID_ARG;
     }
+    /* Keep this operation's success/error code so later steps can stop safely on failure. */
     esp_err_t result =
+        /*
+         * Prepare the captured measurement time as a readable PhST string in the supplied
+         * buffer.
+         */
         notification_format_time(message, fields->measured, sizeof(fields->measured));
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Append UTC+08:00 only when a valid captured time was available. */
     fields->offset = message->time_valid ? "\nUTC+08:00" : "";
     result =
+        /*
+         * Print a whole-number percentage; %% produces one literal percent sign in printf-style
+         * formatting.
+         */
         write_text(fields->moisture, sizeof(fields->moisture), "%d%%", message->moisture_percent);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Replace both failed DHT readings with Unavailable; ignore their numeric contents. */
     if (!message->environment_valid) {
+        /* Copy this fixed known string into its already-sized display buffer. */
         strcpy(fields->temperature, "Unavailable");
+        /* Copy this fixed known string into its already-sized display buffer. */
         strcpy(fields->humidity, "Unavailable");
+        /* Finish successfully; the caller may now use this function's output. */
         return ESP_OK;
     }
+    /* Reject NaN/infinity and any explicitly checked humidity range violations. */
     if (!isfinite(message->temperature) || !isfinite(message->humidity) || message->humidity < 0 ||
         message->humidity > 100)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Print Celsius with one decimal place; the UTF-8 bytes below represent the degree symbol. */
     result = write_text(fields->temperature, sizeof(fields->temperature),
                         "%.1f \xC2\xB0"
                         "C",
                         (double)message->temperature);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Print humidity with one decimal place and a literal percent sign. */
     return write_text(fields->humidity, sizeof(fields->humidity), "%.1f%%",
                       (double)message->humidity);
 }
 
+/* Build Telegram HTML when html is true, or a complete plain-text alternative otherwise. */
 esp_err_t notification_format_text(const notification_message_t *message, bool html, char *text,
                                    size_t size)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (text == NULL || size == 0)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /*
+     * Start/leave an empty C string so a failed format cannot expose old or partial message
+     * text.
+     */
     text[0] = '\0';
+    /* Hold display values or the service's named reading fields, depending on this helper. */
     display_fields_t fields;
+    /* Keep this operation's success/error code so later steps can stop safely on failure. */
     esp_err_t result = prepare(message, &fields);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
     /* All inserted words are validated states, formatted numbers, or our own fixed text. */
     if (html) {
+        /*
+         * Build the Telegram HTML message with bold labels, readable groups, captured time, and
+         * the simulation note.
+         */
         return write_text(text, size,
                           "<b>Plant-01</b>\n<i>Condition update</i>\n\n"
                           "<b>State:</b> %s\n<b>Simulated moisture:</b> %s\n\n"
@@ -140,6 +266,7 @@ esp_err_t notification_format_text(const notification_message_t *message, bool h
                           message->state, fields.moisture, fields.temperature, fields.humidity,
                           fields.measured, fields.offset);
     }
+    /* Build the complete plain-text alternative while enforcing the caller's buffer limit. */
     return write_text(
         text, size,
         "Plant-01\nCondition update\n\nState: %s\nSimulated moisture: %s\n"
@@ -149,56 +276,110 @@ esp_err_t notification_format_text(const notification_message_t *message, bool h
         fields.offset);
 }
 
+/* Build the HTML email card. This prepares text only; gmail.c sends it later. */
 esp_err_t notification_format_gmail(const notification_message_t *message, char *html, size_t size)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (html == NULL || size == 0)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /*
+     * Start/leave an empty C string so a failed format cannot expose old or partial message
+     * text.
+     */
     html[0] = '\0';
+    /* Hold display values or the service's named reading fields, depending on this helper. */
     display_fields_t fields;
+    /* Keep this operation's success/error code so later steps can stop safely on failure. */
     esp_err_t result = prepare(message, &fields);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
     /* Inline styles and presentation tables work in email clients without JavaScript. */
     return write_text(
         html, size,
+        /* Begin an HTML5/UTF-8 email so text and the degree symbol have a defined encoding. */
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        /*
+         * Suggest device-width rendering; actual phone/email-client behavior still needs
+         * recipient testing.
+         */
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
         "<body "
         "style=\"margin:0;background:#f5f8f5;color:#172d25;font-family:Inter,Arial,sans-serif\">"
+        /* Use a full-width presentation table as an email-compatible outer layout container. */
         "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
         "<td align=\"center\" style=\"padding:20px 12px\">"
+        /*
+         * Center a white card up to 620 pixels wide; max-width limits desktop width rather than
+         * guaranteeing mobile stacking.
+         */
         "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\" "
         "style=\"max-width:620px;background:#ffffff;border-radius:12px;overflow:hidden\">"
+        /* Start the dark-green header area and keep its text light for contrast. */
         "<tr><td colspan=\"2\" style=\"padding:26px;background:#173f32;color:#ffffff\">"
         "<div style=\"font-size:14px;color:#d3e5d7;margin-bottom:22px\">"
+        /*
+         * Reference the inline PNG by Content-ID; gmail.c sends the matching image part inside
+         * this email.
+         */
         "<img src=\"cid:plant-mark\" width=\"20\" height=\"20\" alt=\"\" "
         "style=\"vertical-align:middle;margin-right:8px\">Plant Monitor</div>"
         "<table role=\"presentation\" width=\"100%%\"><tr><td>"
+        /* Show the plant identifier as the main heading. */
         "<h1 style=\"margin:0;color:#ffffff;font-size:32px;font-weight:600\">Plant-01</h1>"
         "<p style=\"margin:8px 0 0;font-size:15px;color:#d3e5d7\">Condition update</p></td>"
+        /*
+         * Place the state badge at the right; the three %s values below supply its colors and
+         * state word.
+         */
         "<td align=\"right\"><span style=\"display:inline-block;padding:8px 14px;border-radius:5px;"
         "background:%s;color:%s;font-size:16px;font-weight:600\">%s</span></td></tr></table></td></"
         "tr>"
         "<tr><td colspan=\"2\" style=\"padding:26px\">"
+        /* Start the readings table inside the padded white card body. */
         "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\">"
+        /*
+         * Give the moisture reading 45% of this row; these two table cells do not automatically
+         * stack.
+         */
         "<tr><td style=\"width:45%%;vertical-align:top\">"
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Simulated moisture</div>"
         "<div "
+        /* Emphasize the simulated percentage using a large numeric display. */
         "style=\"font-size:64px;line-height:1.2;font-weight:500;margin-top:12px\">%s</div></td>"
+        /* Place the air readings in the neighboring cell with left spacing. */
         "<td style=\"vertical-align:top;padding-left:18px\">"
+        /* Label the captured temperature; the next %s supplies its value or Unavailable. */
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Temperature</div>"
         "<div style=\"font-size:23px;margin:8px 0 18px\">%s</div>"
+        /* Label the humidity reading beneath the temperature value. */
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Humidity</div>"
         "<div style=\"font-size:23px;margin-top:8px\">%s</div></td></tr></table>"
         "<div style=\"border-top:1px solid "
         "#d8e1db;padding-top:22px;margin-top:22px;font-size:15px;line-height:1.6\">"
+        /* Display the captured PhST time and why this event was created, below a separator. */
         "<b>Measured</b><br>%s%s<br><br><b>Reason</b><br>Confirmed moisture state</div>"
+        /*
+         * Add the footer that prevents the knob percentage from being mistaken for calibrated
+         * soil moisture.
+         */
         "<p style=\"border-top:1px solid #d8e1db;margin:22px 0 0;padding-top:18px;"
         "font-size:13px;line-height:1.6;color:#53695b\">Moisture is simulated using a "
         "potentiometer.</p>"
+        /*
+         * Close every table/body/document element; this closes HTML, not the SMTP network
+         * message.
+         */
         "</td></tr></table></td></tr></table></body></html>",
+        /*
+         * Supply the status colors, state word, and moisture value in the same order as their %s
+         * placeholders.
+         */
         fields.badge_background, fields.badge_foreground, message->state, fields.moisture,
         fields.temperature, fields.humidity, fields.measured,
+        /* Add the UTC+08:00 note only when the original measurement had a valid clock. */
         message->time_valid ? "<br><span style=\"color:#53695b;font-size:13px\">UTC+08:00</span>"
                             : "");
 }
@@ -206,8 +387,11 @@ esp_err_t notification_format_gmail(const notification_message_t *message, char 
 /* These helpers attach children immediately, so deleting the root cleans up any failure. */
 static cJSON *slack_block(cJSON *blocks, const char *type)
 {
+    /* Create/reference one Slack header, section, divider, or context block. */
     cJSON *block = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL)
+        /* Return no object/pointer; the caller must handle this failed creation. */
         return NULL;
     if (!cJSON_AddItemToArray(blocks, block)) {
         cJSON_Delete(block);
