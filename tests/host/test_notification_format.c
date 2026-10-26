@@ -381,92 +381,65 @@ static void telegram_has_bold_labels_and_html_mode(void)
     cJSON_Delete(json);
 }
 /*
- * Check that slack has fields and accessible fallback; use controlled inputs rather than live
- * sensors.
+ * Check that Slack readings stack and retain their accessible fallback using controlled inputs.
  */
-static void slack_has_fields_and_accessible_fallback(void)
+static void slack_stacks_readings_with_accessible_fallback(void)
 {
-    /* Keep this function's prepared display values or its repeatable test event. */
+    /* Build the real payload; native section text must remain readable without a two-column grid. */
     notification_message_t data = sample();
-    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
-    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_slack(&data, &json) == ESP_OK);
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_IsArray(get(json, "blocks")));
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_IsString(get(json, "text")));
-    /* Create/reference Slack's ordered list of layout blocks. */
     const cJSON *blocks = get(json, "blocks");
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_GetArraySize(blocks) >= 6);
-    /* Require an exact match with the expected display string or JSON field value. */
+    CHECK(cJSON_IsArray(blocks));
     CHECK(string_is(get(cJSON_GetArrayItem(blocks, 0), "type"), "header"));
-    /* Hold display values or the service's named reading fields, depending on this helper. */
-    const cJSON *fields = get(cJSON_GetArrayItem(blocks, 2), "fields");
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_GetArraySize(fields) == 4);
-    /* Require an exact match with the expected display string or JSON field value. */
-    CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "text"), "*State*\nDRY"));
-    /* Require this expected content (or its absence with !) in the generated message. */
+    /* A fields array asks Slack for columns, so none of these blocks may contain one. */
+    for (int i = 0; i < cJSON_GetArraySize(blocks); i++) {
+        CHECK(get(cJSON_GetArrayItem(blocks, i), "fields") == NULL);
+    }
+    /* Keep every reading in a full-width text section with bold labels and ordinary values. */
+    const cJSON *readings = get(get(cJSON_GetArrayItem(blocks, 2), "text"), "text");
+    CHECK(cJSON_IsString(readings));
+    CHECK(strstr(readings->valuestring, "*State:* DRY"));
+    CHECK(strstr(readings->valuestring, "*Simulated moisture:* 26%"));
+    CHECK(strstr(readings->valuestring, "*Temperature:* 28.0"));
+    CHECK(strstr(readings->valuestring, "*Humidity:* 77.0%"));
+    /* Screen readers and notification previews still receive the complete plain-text alternative. */
     CHECK(strstr(get(json, "text")->valuestring, "8:15:54 AM PhST"));
-    /* Turn the JSON tree into compact request text with correctly escaped string values. */
     char *body = cJSON_PrintUnformatted(json);
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(body);
-    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("slack.json", body);
-    /* Free the separately allocated JSON request text after the client has finished using it. */
     cJSON_free(body);
-    /*
-     * Free this JSON tree and all children already attached to it; this does not free serialized
-     * text.
-     */
     cJSON_Delete(json);
 }
 /* Check that discord has embed and no mentions; use controlled inputs rather than live sensors. */
-static void discord_has_embed_and_no_mentions(void)
+static void discord_stacks_fields_without_spacers_or_mentions(void)
 {
-    /* Keep this function's prepared display values or its repeatable test event. */
+    /* Build the same event as a native Discord card; no blank alignment field is needed. */
     notification_message_t data = sample();
-    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
-    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
-    /* Create/reference Discord's list of rich cards; this message uses one card. */
     const cJSON *embeds = get(json, "embeds");
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(embeds) == 1);
-    /* Create/reference the single Discord card that holds title, color, fields, and footer. */
     const cJSON *embed = cJSON_GetArrayItem(embeds, 0);
-    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(embed, "title"), "Plant-01"));
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(get(embed, "color")->valueint == 0xd5a34b);
-    /* Hold display values or the service's named reading fields, depending on this helper. */
     const cJSON *fields = get(embed, "fields");
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_GetArraySize(fields) == 7);
-    /* Require an exact match with the expected display string or JSON field value. */
-    CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "name"), "State"));
-    /* Require an exact match with the expected display string or JSON field value. */
+    const char *names[] = {"State",    "Simulated moisture", "Temperature",
+                           "Humidity", "Measured",           "Reason"};
+    CHECK(cJSON_GetArraySize(fields) == 6);
+    /* Full-width fields preserve their reading order on both narrow and wide Discord clients. */
+    for (int i = 0; i < 6; i++) {
+        const cJSON *field = cJSON_GetArrayItem(fields, i);
+        CHECK(string_is(get(field, "name"), names[i]));
+        CHECK(cJSON_IsFalse(get(field, "inline")));
+    }
     CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "value"), "DRY"));
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
-    CHECK(cJSON_IsTrue(get(cJSON_GetArrayItem(fields, 0), "inline")));
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
+    CHECK(strstr(get(cJSON_GetArrayItem(fields, 4), "value")->valuestring, "8:15:54 AM PhST"));
     CHECK(cJSON_GetArraySize(get(get(json, "allowed_mentions"), "parse")) == 0);
-    /* Turn the JSON tree into compact request text with correctly escaped string values. */
     char *body = cJSON_PrintUnformatted(json);
-    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(body);
-    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("discord.json", body);
-    /* Free the separately allocated JSON request text after the client has finished using it. */
     cJSON_free(body);
-    /*
-     * Free this JSON tree and all children already attached to it; this does not free serialized
-     * text.
-     */
     cJSON_Delete(json);
 }
 /*
@@ -819,9 +792,9 @@ int main(int argc, char **argv)
     /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(telegram_has_bold_labels_and_html_mode);
     /* Run this named host test and print PASS/FAIL while updating the case count. */
-    RUN(slack_has_fields_and_accessible_fallback);
+    RUN(slack_stacks_readings_with_accessible_fallback);
     /* Run this named host test and print PASS/FAIL while updating the case count. */
-    RUN(discord_has_embed_and_no_mentions);
+    RUN(discord_stacks_fields_without_spacers_or_mentions);
     /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(gmail_matches_the_design_and_has_time);
     /* Run this named host test and print PASS/FAIL while updating the case count. */

@@ -390,36 +390,6 @@ static bool slack_text(cJSON *parent, const char *key, const char *type, const c
            /* Add the named string to the JSON object; NULL signals insufficient memory. */
            cJSON_AddStringToObject(object, "text", text) != NULL;
 }
-/* Add one bold Slack label and its value to the grid of reading fields. */
-static bool slack_field(cJSON *fields, const char *label, const char *value)
-{
-    /* Reserve a bounded character array for generated text, including its final zero byte. */
-    char text[192];
-    /* Stop if this intermediate display text cannot fit safely in its buffer. */
-    if (write_text(text, sizeof(text), "*%s*\n%s", label, value) != ESP_OK)
-        /* Return no/false: this check did not authorize a change, output, or action. */
-        return false;
-    /* Allocate one label/value field; attach it before handing ownership to the parent. */
-    cJSON *field = cJSON_CreateObject();
-    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
-    if (field == NULL)
-        /* Return no/false: this check did not authorize a change, output, or action. */
-        return false;
-    /* Check that every requested JSON field/child was created before exposing the final payload. */
-    if (!cJSON_AddItemToArray(fields, field)) {
-        /*
-         * Free this JSON tree and all children already attached to it; this does not free
-         * serialized text.
-         */
-        cJSON_Delete(field);
-        /* Return no/false: this check did not authorize a change, output, or action. */
-        return false;
-    }
-    /* Add the named string to the JSON object; NULL signals insufficient memory. */
-    return cJSON_AddStringToObject(field, "type", "mrkdwn") != NULL &&
-           /* Add the named string to the JSON object; NULL signals insufficient memory. */
-           cJSON_AddStringToObject(field, "text", text) != NULL;
-}
 
 /* Build Slack's native blocks plus complete fallback text for notifications/accessibility. */
 esp_err_t notification_build_slack(const notification_message_t *message, cJSON **json)
@@ -445,6 +415,14 @@ esp_err_t notification_build_slack(const notification_message_t *message, cJSON 
     /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
         /* Pass the actual success/error code back to the caller; do not replace it with success. */
+        return result;
+    /* One section of ordinary wrapping text replaces Slack's two-column fields array. */
+    char readings[256];
+    result = write_text(readings, sizeof(readings),
+                        "*State:* %s\n*Simulated moisture:* %s\n\n"
+                        "*Temperature:* %s\n*Humidity:* %s",
+                        message->state, data.moisture, data.temperature, data.humidity);
+    if (result != ESP_OK)
         return result;
     /* Allocate the outer JSON object; deleting it later also deletes its attached children. */
     cJSON *root = cJSON_CreateObject();
@@ -477,20 +455,9 @@ esp_err_t notification_build_slack(const notification_message_t *message, cJSON 
     if (block == NULL || !slack_text(block, "text", "mrkdwn", "Condition update"))
         /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
-    /* Append another Slack section; the following text/fields specify this section's content. */
+    /* Bold labels remain, but section text can use the whole message width on any client. */
     block = slack_block(blocks, "section");
-    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
-    if (block == NULL)
-        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
-        goto no_memory;
-    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
-    cJSON *fields = cJSON_AddArrayToObject(block, "fields");
-    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
-    if (fields == NULL || !slack_field(fields, "State", message->state) ||
-        !slack_field(fields, "Simulated moisture", data.moisture) ||
-        !slack_field(fields, "Temperature", data.temperature) ||
-        !slack_field(fields, "Humidity", data.humidity))
-        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
+    if (block == NULL || !slack_text(block, "text", "mrkdwn", readings))
         goto no_memory;
     /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (slack_block(blocks, "divider") == NULL)
@@ -652,15 +619,13 @@ esp_err_t notification_build_discord(const notification_message_t *message, cJSO
     if (write_text(time, sizeof(time), "%s%s", data.measured, data.offset) != ESP_OK)
         /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
-    /* The invisible third field keeps the two main readings paired on wide clients. */
-    if (fields == NULL || !discord_field(fields, "State", message->state, true) ||
-        !discord_field(fields, "Simulated moisture", data.moisture, true) ||
-        !discord_field(fields, "\xE2\x80\x8B", "\xE2\x80\x8B", true) ||
-        !discord_field(fields, "Temperature", data.temperature, true) ||
-        !discord_field(fields, "Humidity", data.humidity, true) ||
+    /* Each field takes a full row; a phone never has to squeeze paired labels into columns. */
+    if (fields == NULL || !discord_field(fields, "State", message->state, false) ||
+        !discord_field(fields, "Simulated moisture", data.moisture, false) ||
+        !discord_field(fields, "Temperature", data.temperature, false) ||
+        !discord_field(fields, "Humidity", data.humidity, false) ||
         !discord_field(fields, "Measured", time, false) ||
         !discord_field(fields, "Reason", "Confirmed moisture state", false))
-        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
     /* Attach a nested JSON object to its parent and transfer cleanup ownership. */
     cJSON *footer = cJSON_AddObjectToObject(embed, "footer");

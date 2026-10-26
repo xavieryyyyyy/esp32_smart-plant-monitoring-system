@@ -130,7 +130,7 @@ static esp_err_t slack_send_once(const notification_message_t *message, int *htt
     }
 
     /*
-     * Build Slack's aligned fields and a full plain-text fallback for notifications.
+     * Build Slack's full-width sections and a complete plain-text fallback for notifications.
      */
     cJSON *json = NULL;
     /* Build Slack fields/fallback from this captured event; check its result before sending. */
