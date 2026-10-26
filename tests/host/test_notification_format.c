@@ -521,6 +521,7 @@ static void all_conditions_keep_their_own_colors(void)
      * function.
      */
     data.state = "NORMAL";
+    data.moisture_percent = 50;
     /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
     /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
@@ -534,7 +535,12 @@ static void all_conditions_keep_their_own_colors(void)
      * Set this controlled test input/flag for the scenario named by the surrounding test
      * function.
      */
+    /* Save real NORMAL HTML so the longer status badge is checked on a narrow screen. */
+    char html[NOTIFICATION_HTML_CAPACITY];
+    CHECK(notification_format_gmail(&data, html, sizeof(html)) == ESP_OK);
+    save_text("gmail-normal-state.html", html);
     data.state = "WET";
+    data.moisture_percent = 100;
     /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
     /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
@@ -544,6 +550,9 @@ static void all_conditions_keep_their_own_colors(void)
      * text.
      */
     cJSON_Delete(json);
+    /* A three-digit moisture value must also fit without squeezing the air readings. */
+    CHECK(notification_format_gmail(&data, html, sizeof(html)) == ESP_OK);
+    save_text("gmail-wet-state.html", html);
 }
 /*
  * Check that missing dht and clock render on every channel; use controlled inputs rather than

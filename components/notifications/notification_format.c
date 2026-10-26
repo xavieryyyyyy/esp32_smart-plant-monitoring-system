@@ -296,90 +296,64 @@ esp_err_t notification_format_gmail(const notification_message_t *message, char 
     if (result != ESP_OK)
         /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
-    /* Inline styles and presentation tables work in email clients without JavaScript. */
+    /*
+     * Keep readings in one column at every width. This still works if a mail reader
+     * ignores the optional style block; the inline styles provide the base layout.
+     */
     return write_text(
         html, size,
-        /* Begin an HTML5/UTF-8 email so text and the degree symbol have a defined encoding. */
+        /* UTF-8 preserves the degree symbol. The viewport lets phone readers use their width. */
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-        /*
-         * Suggest device-width rendering; actual phone/email-client behavior still needs
-         * recipient testing.
-         */
-        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>"
-        "<body "
-        "style=\"margin:0;background:#f5f8f5;color:#172d25;font-family:Inter,Arial,sans-serif\">"
-        /* Use a full-width presentation table as an email-compatible outer layout container. */
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        /* Smaller screens get gentler padding/type; the single-column reading order never changes. */
+        "<style>@media screen and (max-width:480px){"
+        ".email-outer{padding:12px 8px!important}.card-pad{padding:20px!important}"
+        ".plant-title{font-size:28px!important}.moisture-number{font-size:48px!important}"
+        "}</style></head>"
+        "<body style=\"margin:0;background:#f5f8f5;color:#172d25;"
+        "font-family:Inter,Arial,sans-serif\">"
+        /* A full-width outer table can shrink; the inner card only limits the desktop maximum. */
         "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
-        "<td align=\"center\" style=\"padding:20px 12px\">"
-        /*
-         * Center a white card up to 620 pixels wide; max-width limits desktop width rather than
-         * guaranteeing mobile stacking.
-         */
+        "<td class=\"email-outer\" align=\"center\" style=\"padding:20px 12px\">"
         "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\" "
-        "style=\"max-width:620px;background:#ffffff;border-radius:12px;overflow:hidden\">"
-        /* Start the dark-green header area and keep its text light for contrast. */
-        "<tr><td colspan=\"2\" style=\"padding:26px;background:#173f32;color:#ffffff\">"
+        "style=\"max-width:620px;table-layout:fixed;background:#ffffff;"
+        "border-radius:12px;overflow:hidden\">"
+        /* Preserve the approved forest header and inline image; neither needs a remote download. */
+        "<tr><td class=\"card-pad\" style=\"padding:26px;background:#173f32;color:#ffffff\">"
         "<div style=\"font-size:14px;color:#d3e5d7;margin-bottom:22px\">"
-        /*
-         * Reference the inline PNG by Content-ID; gmail.c sends the matching image part inside
-         * this email.
-         */
         "<img src=\"cid:plant-mark\" width=\"20\" height=\"20\" alt=\"\" "
         "style=\"vertical-align:middle;margin-right:8px\">Plant Monitor</div>"
-        "<table role=\"presentation\" width=\"100%%\"><tr><td>"
-        /* Show the plant identifier as the main heading. */
-        "<h1 style=\"margin:0;color:#ffffff;font-size:32px;font-weight:600\">Plant-01</h1>"
-        "<p style=\"margin:8px 0 0;font-size:15px;color:#d3e5d7\">Condition update</p></td>"
-        /*
-         * Place the state badge at the right; the three %s values below supply its colors and
-         * state word.
-         */
-        "<td align=\"right\"><span style=\"display:inline-block;padding:8px 14px;border-radius:5px;"
-        "background:%s;color:%s;font-size:16px;font-weight:600\">%s</span></td></tr></table></td></"
-        "tr>"
-        "<tr><td colspan=\"2\" style=\"padding:26px\">"
-        /* Start the readings table inside the padded white card body. */
-        "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\">"
-        /*
-         * Give the moisture reading 45% of this row; these two table cells do not automatically
-         * stack.
-         */
-        "<tr><td style=\"width:45%%;vertical-align:top\">"
+        /* Only the short plant name and state share this row; long measurement text stays below. */
+        "<table role=\"presentation\" width=\"100%%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td>"
+        "<h1 class=\"plant-title\" style=\"margin:0;color:#ffffff;font-size:32px;"
+        "font-weight:600\">Plant-01</h1></td>"
+        "<td align=\"right\" style=\"width:88px\">"
+        "<span style=\"display:inline-block;padding:8px 12px;border-radius:5px;"
+        "background:%s;color:%s;font-size:14px;font-weight:600\">%s</span></td></tr></table>"
+        "<p style=\"margin:8px 0 0;font-size:15px;color:#d3e5d7\">Condition update</p></td></tr>"
+        "<tr><td class=\"card-pad\" style=\"padding:26px;word-wrap:break-word\">"
+        /* The primary reading occupies its own full-width block instead of half a table row. */
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Simulated moisture</div>"
-        "<div "
-        /* Emphasize the simulated percentage using a large numeric display. */
-        "style=\"font-size:64px;line-height:1.2;font-weight:500;margin-top:12px\">%s</div></td>"
-        /* Place the air readings in the neighboring cell with left spacing. */
-        "<td style=\"vertical-align:top;padding-left:18px\">"
-        /* Label the captured temperature; the next %s supplies its value or Unavailable. */
+        "<div class=\"moisture-number\" style=\"font-size:56px;line-height:1.2;"
+        "font-weight:500;margin:8px 0 20px\">%s</div>"
+        /* Stack air readings as complete label/value pairs; Unavailable can wrap in the same space. */
+        "<div style=\"border-top:1px solid #d8e1db;border-bottom:1px solid #d8e1db;"
+        "padding:18px 0\">"
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Temperature</div>"
-        "<div style=\"font-size:23px;margin:8px 0 18px\">%s</div>"
-        /* Label the humidity reading beneath the temperature value. */
+        "<div style=\"font-size:23px;line-height:1.4;margin:6px 0 18px\">%s</div>"
         "<div style=\"font-size:14px;font-weight:600;color:#4e6256\">Humidity</div>"
-        "<div style=\"font-size:23px;margin-top:8px\">%s</div></td></tr></table>"
-        "<div style=\"border-top:1px solid "
-        "#d8e1db;padding-top:22px;margin-top:22px;font-size:15px;line-height:1.6\">"
-        /* Display the captured PhST time and why this event was created, below a separator. */
+        "<div style=\"font-size:23px;line-height:1.4;margin-top:6px\">%s</div></div>"
+        /* Normal spaces permit wrapping. No fixed-width date row or nonbreaking-space padding is used. */
+        "<div style=\"padding-top:22px;font-size:16px;line-height:1.6;word-wrap:break-word\">"
         "<b>Measured</b><br>%s%s<br><br><b>Reason</b><br>Confirmed moisture state</div>"
-        /*
-         * Add the footer that prevents the knob percentage from being mistaken for calibrated
-         * soil moisture.
-         */
+        /* Keep the simulation qualification present at phone and desktop widths alike. */
         "<p style=\"border-top:1px solid #d8e1db;margin:22px 0 0;padding-top:18px;"
-        "font-size:13px;line-height:1.6;color:#53695b\">Moisture is simulated using a "
-        "potentiometer.</p>"
-        /*
-         * Close every table/body/document element; this closes HTML, not the SMTP network
-         * message.
-         */
+        "font-size:13px;line-height:1.6;color:#53695b\">"
+        "Moisture is simulated using a potentiometer.</p>"
         "</td></tr></table></td></tr></table></body></html>",
-        /*
-         * Supply the status colors, state word, and moisture value in the same order as their %s
-         * placeholders.
-         */
+        /* These values fill the validated badge, readings, and original captured time in order. */
         fields.badge_background, fields.badge_foreground, message->state, fields.moisture,
         fields.temperature, fields.humidity, fields.measured,
-        /* Add the UTC+08:00 note only when the original measurement had a valid clock. */
         message->time_valid ? "<br><span style=\"color:#53695b;font-size:13px\">UTC+08:00</span>"
                             : "");
 }
