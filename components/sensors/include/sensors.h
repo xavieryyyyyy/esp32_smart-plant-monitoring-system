@@ -7,6 +7,7 @@
 
 typedef struct {
     uint32_t sequence;
+    int64_t sampled_at_us;
     time_t measured_at;
     bool time_valid;
     int raw;

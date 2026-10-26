@@ -31,6 +31,8 @@ static void sensor_task(void *parameter)
     while (1) {
         sensor_reading_t reading = {0};
         reading.sequence = sequence++;
+        reading.sampled_at_us = esp_timer_get_time();
+
 
         reading.time_valid = connectivity_time_is_ready();
 
@@ -76,6 +78,16 @@ static void monitoring_task(void *parameter)
                      "Sample gap; confirmation streak reset");
         }
         expected_sequence = reading.sequence + 1;
+
+        int64_t now_us = esp_timer_get_time();
+int64_t age_us = now_us - reading.sampled_at_us;
+
+if (age_us < 0 || age_us > 10LL * 1000000LL) {
+    monitoring_reset_streak(&monitor);
+    ESP_LOGW("MONITOR",
+             "Stale or invalid sample timestamp; streak reset");
+    continue;
+}
 
         if (reading.pot_result == ESP_OK) {
             int percent = monitoring_percent(reading.raw);
