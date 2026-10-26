@@ -562,84 +562,211 @@ static void missing_dht_and_clock_render_on_every_channel(void)
      * function.
      */
     data.environment_valid = false;
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.time_valid = false;
+    /* Run the same offline checks for Slack, Discord, and Telegram JSON builders. */
     for (int channel = 0; channel < 3; channel++) {
-        esp_err_t result = channel == 0   ? notification_build_slack(&data, &json)
+        /* Build Slack fields/fallback from this captured event; check its result before sending. */
+        esp_err_t result = channel == 0 ? notification_build_slack(&data, &json)
+                           /*
+                            * Build the Discord embed from this captured event; the caller owns a
+                            * successful tree.
+                            */
                            : channel == 1 ? notification_build_discord(&data, &json)
+                                          /*
+                                           * Build Telegram chat_id/text/parse_mode fields from
+                                           * this captured event.
+                                           */
                                           : notification_build_telegram(&data, "demo", &json);
+        /* Require successful formatting/building before examining the resulting text or JSON. */
         CHECK(result == ESP_OK);
+        /* Turn the JSON tree into compact request text with correctly escaped string values. */
         char *body = cJSON_PrintUnformatted(json);
+        /*
+         * Assert this expected property; a failed CHECK records the failure and leaves this
+         * case.
+         */
         CHECK(body);
+        /* Require this expected content (or its absence with !) in the generated message. */
         CHECK(strstr(body, "Unavailable"));
+        /* Require this expected content (or its absence with !) in the generated message. */
         CHECK(strstr(body, "clock not synchronized"));
+        /*
+         * Free the separately allocated JSON request text after the client has finished using
+         * it.
+         */
         cJSON_free(body);
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(json);
+        /* Forget the already-deleted JSON pointer before building the next test payload. */
         json = NULL;
     }
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_gmail(&data, text, sizeof(text)) == ESP_OK);
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "clock not synchronized"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Unavailable"));
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("gmail-unavailable.html", text);
 }
+/* Limit how many allocations the next test builder is allowed to make. */
 static long allocation_budget;
+/* Count live test allocations so cleanup can be checked for leaks. */
 static long allocations;
+/* Deliberately fail allocations after a chosen budget to test low-memory error paths. */
 static void *limited_malloc(size_t size)
 {
+    /* Spend one allocation slot; return NULL once the deliberate test budget is exhausted. */
     if (allocation_budget-- <= 0)
+        /* Return no object/pointer; the caller must handle this failed creation. */
         return NULL;
+    /* Try this budgeted allocation and retain the pointer for the leak counter. */
     void *p = malloc(size);
+    /* Only count a test allocation when malloc actually returned storage. */
     if (p)
+        /* Count this successful test allocation so its matching free can be verified. */
         allocations++;
+    /* Return the successful test allocation (or NULL if allocation failed). */
     return p;
 }
+/* Free a test allocation and reduce the count used to detect leaked JSON memory. */
 static void counted_free(void *p)
 {
+    /* Only decrement the live-allocation count for a pointer that really owns memory. */
     if (p) {
+        /* Record that one tracked allocation has been released. */
         allocations--;
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(p);
     }
 }
+/*
+ * Check that allocation failures leave no partial payload or leak; use controlled inputs rather
+ * than live sensors.
+ */
 static void allocation_failures_leave_no_partial_payload_or_leak(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /*
+     * Replace cJSON allocation/free functions temporarily with the deliberate-failure test
+     * versions.
+     */
     cJSON_Hooks hooks = {limited_malloc, counted_free};
+    /* Run the same offline checks for Slack, Discord, and Telegram JSON builders. */
     for (int channel = 0; channel < 3; channel++) {
+        /* Track that increasing memory budgets eventually allows this builder to finish. */
         bool reached_success = false;
+        /*
+         * Increase the allowed allocation count to exercise every failure point before the
+         * builder succeeds.
+         */
         for (long budget = 0; budget < 400; budget++) {
+            /* Set how many cJSON allocations this fault-injection attempt is allowed to make. */
             allocation_budget = budget;
+            /* Start this fault-injection attempt with no live tracked allocations. */
             allocations = 0;
+            /* Use the test allocator so this run can fail at a chosen memory-allocation step. */
             cJSON_InitHooks(&hooks);
+            /*
+             * Start with no JSON tree; the builder supplies one only after it finishes
+             * successfully.
+             */
             cJSON *json = NULL;
-            esp_err_t result = channel == 0   ? notification_build_slack(&data, &json)
+            /*
+             * Build Slack fields/fallback from this captured event; check its result before
+             * sending.
+             */
+            esp_err_t result = channel == 0 ? notification_build_slack(&data, &json)
+                               /*
+                                * Build the Discord embed from this captured event; the caller
+                                * owns a successful tree.
+                                */
                                : channel == 1 ? notification_build_discord(&data, &json)
+                                              /*
+                                               * Build Telegram chat_id/text/parse_mode fields
+                                               * from this captured event.
+                                               */
                                               : notification_build_telegram(&data, "demo", &json);
+            /* Detect an invalid result that still exposes a partially built JSON payload. */
             bool partial = result != ESP_OK && json != NULL;
+            /*
+             * Free this JSON tree and all children already attached to it; this does not free
+             * serialized text.
+             */
             cJSON_Delete(json);
+            /*
+             * Save the outstanding allocation count before restoring cJSON's normal memory
+             * functions.
+             */
             long leaks = allocations;
+            /* Restore cJSON's normal allocation/free functions after the fault-injection check. */
             cJSON_InitHooks(NULL);
+            /*
+             * Assert this expected property; a failed CHECK records the failure and leaves this
+             * case.
+             */
             CHECK(!partial);
+            /* Require that all test allocations were released after this success/failure path. */
             CHECK(leaks == 0);
+            /* Continue to the next step only if the preceding operation succeeded. */
             if (result == ESP_OK) {
+                /*
+                 * Remember that the builder eventually completed with sufficient allocation
+                 * budget.
+                 */
                 reached_success = true;
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
             }
+            /*
+             * Require the intended error code for this deliberately invalid input or undersized
+             * buffer.
+             */
             CHECK(result == ESP_ERR_NO_MEM);
         }
+        /*
+         * Assert this expected property; a failed CHECK records the failure and leaves this
+         * case.
+         */
         CHECK(reached_success);
     }
 }
+/* Check that null arguments fail safely; use controlled inputs rather than live sensors. */
 static void null_arguments_fail_safely(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[128];
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_time(NULL, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_time(&data, NULL, 1) == ESP_ERR_INVALID_ARG);
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_build_slack(&data, NULL) == ESP_ERR_INVALID_ARG);
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_build_telegram(&data, "", &json) == ESP_ERR_INVALID_ARG);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(json == NULL);
 }
 
+/* Remember the failure count, execute one case, and print whether that case added a failure. */
 #define RUN(test)                                                                                  \
     do {                                                                                           \
         int old = failures;                                                                        \
@@ -647,28 +774,57 @@ static void null_arguments_fail_safely(void)
         test();                                                                                    \
         printf("%s %s\n", failures == old ? "PASS" : "FAIL", #test);                               \
     } while (0)
+/*
+ * Computer-side test entry point: validate arguments, run this executable's checks, and return
+ * pass/fail.
+ */
 int main(int argc, char **argv)
 {
+    /* Require the expected test command-line arguments before reading argv entries. */
     if (argc != 2)
+        /*
+         * Return a nonzero process status so the computer-side runner treats this test
+         * invocation as failed.
+         */
         return 2;
+    /* Use the output folder supplied by the Python runner for generated example files. */
     artifacts = argv[1];
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(phst_uses_captured_time);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(phst_crosses_year);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(phst_midnight_and_noon);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(unknown_clock_is_explicit);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(short_time_buffer_is_rejected);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(plain_text_has_complete_values);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(failed_dht_keeps_measured_time);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(invalid_values_are_rejected);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(formatting_does_not_publish_truncated_text);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(telegram_has_bold_labels_and_html_mode);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(slack_has_fields_and_accessible_fallback);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(discord_has_embed_and_no_mentions);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(gmail_matches_the_design_and_has_time);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(all_conditions_keep_their_own_colors);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(missing_dht_and_clock_render_on_every_channel);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(allocation_failures_leave_no_partial_payload_or_leak);
+    /* Run this named host test and print PASS/FAIL while updating the case count. */
     RUN(null_arguments_fail_safely);
+    /* Print the test progress/summary; the process exit code still determines pass or fail. */
     printf("%d cases, %d failures\n", cases, failures);
+    /* Return a failing exit status if any host test failed; otherwise return success. */
     return failures ? 1 : 0;
 }
