@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="docs/assets/readme/header.png" alt="ESP32 smart plant monitoring system. ESP-IDF, C, FreeRTOS, ESP32-S3 N16R8. Notifications through Gmail, Telegram, Discord, and Slack." width="100%">
 </p>
 
@@ -451,7 +451,7 @@ These records distinguish hardware observations, controlled fault injection, and
 | T4 Policy | Real confirmed alert and cooldown suppression | [DRY → NORMAL → DRY](docs/results/notification-cooldown-test.md); six tests passed with screenshot evidence | Observed; queue-based cooldown limits apply |
 | T5 Wi-Fi loss | Detect loss, keep monitoring, reconnect | [Device-originated disconnect](docs/results/wifi-reconnection-test.md), about 4.83-second recovery | Partial; router outage/precise sensing continuity unproven |
 | T6 Service errors | Log rejection and bound retries | [Slack 503/429 injection](docs/results/slack-retry-test.md) | Partial; other channels and parser cases pending |
-| T7 Four channels | Matching real recipient outputs | [Gmail/Telegram/Discord/Slack evidence](#gallery) and integrated acceptance logs | Adapted; final shared-event recipient capture pending |
+| T7 Four channels | Matching real recipient outputs | [Same-event screenshots and serial results](docs/results/four-channel-delivery-test.md): NORMAL, 45%, 30 C, 72% RH, 05:23:26 UTC | Passed for the four adapted channels |
 | T8 Restart/recovery | Restart without hanging or disclosure | Saved Wi-Fi reused; [development observations](docs/progress.md) | Observed; endurance/repeated-cycle testing pending |
 
 ### Unit tests
@@ -511,26 +511,26 @@ Temporary disconnect, retry-injection, and timestamp test code was removed after
 <a id="gallery"></a>
 ## <img src="docs/assets/readme/icons/ScanLine.svg" width="24" height="24" alt=""> Recipient delivery gallery
 
-These screenshots are actual project evidence from different runs. Their timestamps and linked records matter; this gallery alone does not prove one shared event reached all four services.
+These four screenshots show the same Plant-01 event measured at **2026-10-26 05:23:26 UTC**: NORMAL, 45% simulated moisture, 30.0 C, and 72.0% RH. The [matching-event record](docs/results/four-channel-delivery-test.md) includes the serial results and screenshot comparison. Earlier DRY entries visible in Discord and Slack are separate events.
 
 <table>
   <tr>
     <td width="50%" valign="top" align="left">
-      <a href="docs/results/gmail-delivery.png"><img src="docs/assets/readme/evidence-gmail.png" alt="Gmail delivery evidence; open for the full-resolution screenshot" width="100%"></a><br>
+      <a href="docs/results/final-gmail.png"><img src="docs/assets/readme/evidence-gmail.png" alt="Gmail matching-event evidence; open for the full-resolution screenshot" width="100%"></a><br>
       <a href="docs/results/gmail-delivery-test.md">SMTP and inbox test record</a>
     </td>
     <td width="50%" valign="top" align="left">
-      <a href="docs/results/telegram-delivery.png"><img src="docs/assets/readme/evidence-telegram.png" alt="Telegram delivery evidence; open for the full-resolution screenshot" width="100%"></a><br>
+      <a href="docs/results/final-telegram.png"><img src="docs/assets/readme/evidence-telegram.png" alt="Telegram matching-event evidence; open for the full-resolution screenshot" width="100%"></a><br>
       <a href="docs/results/telegram-delivery-test.md">HTTP and bot-chat test record</a>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top" align="left">
-      <a href="docs/results/discord-delivery.png"><img src="docs/assets/readme/evidence-discord.png" alt="Discord delivery evidence; open for the full-resolution screenshot" width="100%"></a><br>
+      <a href="docs/results/final-discord.png"><img src="docs/assets/readme/evidence-discord.png" alt="Discord matching-event evidence; open for the full-resolution screenshot" width="100%"></a><br>
       <a href="docs/results/discord-delivery-test.md">Webhook delivery test record</a>
     </td>
     <td width="50%" valign="top" align="left">
-      <a href="docs/results/slack-timestamp-delivery.png"><img src="docs/assets/readme/evidence-slack.png" alt="Slack delivery evidence; open for the full-resolution screenshot" width="100%"></a><br>
+      <a href="docs/results/final-slack.png"><img src="docs/assets/readme/evidence-slack.png" alt="Slack matching-event evidence; open for the full-resolution screenshot" width="100%"></a><br>
       <a href="docs/results/slack-delivery-test.md">Timestamped Slack test record</a>
     </td>
   </tr>
@@ -545,11 +545,11 @@ These screenshots are actual project evidence from different runs. Their timesta
 5. Move above 70%, hold, and confirm WET delivery.
 6. Return through NORMAL to DRY within 15 minutes of the first DRY, without rebooting. Verify the confirmed local state and suppressed repeated notification.
 7. Show that sampling continues during network operations.
-8. Capture one matching event across the four recipients and its serial log for final submission.
+8. Capture one matching event across the four recipients and its serial log. The [recorded final event](docs/results/four-channel-delivery-test.md) demonstrates this step.
 
 About 15 seconds at a stable setting normally provides three samples regardless of sampling phase. Fast consecutive transitions can create a delivery backlog: events carry acquisition-time values, not the newest values at send time.
 
-**Still needed:** final matching four-recipient capture, and a short narrated video or instructor-directed live demonstration. No fabricated report/video link is included.
+**Still needed:** the technical report PDF and a short narrated video or instructor-directed live demonstration. No fabricated report/video link is included.
 
 <a id="lab-requirements"></a>
 ## <img src="docs/assets/readme/icons/ClipboardCheck.svg" width="24" height="24" alt=""> Laboratory requirements and deliverables
@@ -568,7 +568,7 @@ Assignment source: **BCA152 Project No. 1: Smart Plant Monitoring System Using E
 | Queue plus another signaling mechanism | Event group and task notifications | Ownership and priorities described above |
 | Connectivity recovery | Event-driven backoff and disconnect test | Router/prolonged outage coverage incomplete |
 | Four Internet channels | Gmail/Telegram; Discord/Slack replacing WhatsApp/X | Substitution must remain visible to reviewer |
-| Real matching delivery evidence | Four recipient records and integrated acceptance logs | Final shared-event recipient capture pending |
+| Real matching delivery evidence | [Four screenshots and serial evidence for one event](docs/results/four-channel-delivery-test.md) | Verified for the adapted channel set |
 | TLS, secrets, timeouts, rate limits | Certificate bundle/date checks; private config; Slack retries | Other-channel handling incomplete; at-rest secrets not hardened |
 | Missing/implausible/invalid/stale data | Driver results, finite/RH/raw checks, monotonic age guard | Numeric injection and physical-fault coverage incomplete |
 | Unit tests: conversion, classification, persistence, formatting | Six classification/confirmation/reset/cooldown cases | Raw conversion and formatting tests absent; no separate hysteresis bands |
@@ -715,7 +715,7 @@ One run logged advertising error `rc = 30` during cleanup after acceptance/IP ac
 | Connectivity | Reprovision trigger, prolonged outage and endurance tests |
 | API resilience | Other-channel retry/rate/error handling; Slack parser/failure coverage |
 | Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, analyzer version |
-| Submission | Same-event recipient evidence, PDF report, video/live demo |
+| Submission | PDF report and video/live demo |
 
 These items remain visible so a reviewer can separate implementation from proof. Changes need their own reviewed milestones and repeat-test evidence.
 
