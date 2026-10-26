@@ -1,4 +1,7 @@
 # Ask the component manager for the DHT driver used by sensors.c.
+# Declare the application's managed dependency requirements.
 dependencies:
+  # Use the ESP-IDF DHT sensor driver rather than an Arduino library.
   esp-idf-lib/dht:
+    # Request the DHT library version already used for the hardware tests.
     version: "1.2.0"

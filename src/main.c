@@ -4,8 +4,10 @@
  * The jobs keep running after app_main() finishes.
  */
 #include "app_tasks.h"
+/* Use the networking component to start Wi-Fi or ask whether Wi-Fi/time is ready. */
 #include "connectivity.h"
 
+/* ESP-IDF calls this application entry point; its background tasks continue after it returns. */
 void app_main(void)
 {
     /*

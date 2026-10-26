@@ -4,4 +4,5 @@
  */
 #pragma once
 
+/* Create both data queues before starting the three tasks that will use them. */
 void app_tasks_start(void);
