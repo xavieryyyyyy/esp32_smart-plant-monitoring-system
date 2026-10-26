@@ -414,18 +414,27 @@ static esp_err_t smtp_write_base64_body(esp_tls_t *tls, const char *message)
 
         /* Handle/return the earlier failure instead of continuing with invalid output. */
         if (result != ESP_OK) {
+            /*
+             * Leave the nearest loop or switch; do not execute its remaining steps for this
+             * item.
+             */
             break;
         }
 
+        /* Move past the Base64 bytes just sent so the next iteration sends the next chunk. */
         offset += chunk;
     }
 
+    /* Release this temporary heap allocation; free(NULL) is safe for partial-allocation cleanup. */
     free(encoded);
 
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK) {
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
     }
 
+    /* Finish successfully; the caller may now use this function's output. */
     return ESP_OK;
 }
 
@@ -435,48 +444,103 @@ static esp_err_t smtp_write_base64_body(esp_tls_t *tls, const char *message)
  */
 static esp_err_t smtp_send_body(esp_tls_t *tls, const char *plain, const char *html)
 {
+    /*
+     * Open the related MIME part and its plain-text alternative using the same boundary names as
+     * the headers.
+     */
     const char *start =
         "--plant-monitor-related\r\n"
         "Content-Type: multipart/alternative; boundary=\"plant-monitor-alternative\"\r\n\r\n"
         "--plant-monitor-alternative\r\n"
         "Content-Type: text/plain; charset=UTF-8\r\n"
         "Content-Transfer-Encoding: base64\r\n\r\n";
+    /*
+     * Separate the plain text from the HTML alternative and declare the next part's content
+     * type/encoding.
+     */
     const char *html_start = "\r\n--plant-monitor-alternative\r\n"
                              "Content-Type: text/html; charset=UTF-8\r\n"
                              "Content-Transfer-Encoding: base64\r\n\r\n";
+    /*
+     * Close the text alternatives, then introduce the inline PNG referenced by cid:plant-mark in
+     * the HTML.
+     */
     const char *image_start = "\r\n--plant-monitor-alternative--\r\n"
                               "--plant-monitor-related\r\n"
                               "Content-Type: image/png\r\n"
                               "Content-Transfer-Encoding: base64\r\n"
                               "Content-ID: <plant-mark>\r\n"
                               "Content-Disposition: inline; filename=\"plant-mark.png\"\r\n\r\n";
+    /* Close the outer MIME container; this boundary is different from SMTP's final dot command. */
     const char *end = "--plant-monitor-related--\r\n";
 
+    /*
+     * Write every byte of this SMTP fragment, handling partial writes and its operation
+     * deadline.
+     */
     esp_err_t result = smtp_write_all(tls, start, strlen(start));
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write one email part as wrapped Base64 text; the enclosing multipart writer owns the
+         * final dot.
+         */
         result = smtp_write_base64_body(tls, plain);
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write every byte of this SMTP fragment, handling partial writes and its operation
+         * deadline.
+         */
         result = smtp_write_all(tls, html_start, strlen(html_start));
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write one email part as wrapped Base64 text; the enclosing multipart writer owns the
+         * final dot.
+         */
         result = smtp_write_base64_body(tls, html);
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write every byte of this SMTP fragment, handling partial writes and its operation
+         * deadline.
+         */
         result = smtp_write_all(tls, image_start, strlen(image_start));
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write every byte of this SMTP fragment, handling partial writes and its operation
+         * deadline.
+         */
         result = smtp_write_all(tls, notification_mark_base64, strlen(notification_mark_base64));
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /*
+         * Write every byte of this SMTP fragment, handling partial writes and its operation
+         * deadline.
+         */
         result = smtp_write_all(tls, end, strlen(end));
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* End the entire SMTP DATA message once; reply 250 acknowledges acceptance. */
     return smtp_command(tls, ".\r\n", 250);
 }
 
+/* Submit one complete email using certificate-checked TLS and the SMTP command/reply sequence. */
 esp_err_t notifications_send_gmail(const notification_message_t *message)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (message == NULL) {
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* Require both ready Wi-Fi and a synchronized clock before attempting this secure send. */
     if (!connectivity_is_ready() || !connectivity_time_is_ready()) {
+        /* Stop because required setup/readiness is missing or sending is deliberately paused. */
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -484,13 +548,17 @@ esp_err_t notifications_send_gmail(const notification_message_t *message)
      * Read private sender/recipient settings, then reject placeholders or unsafe address text.
      */
     const char *sender = GMAIL_ADDRESS;
+    /* Use the destination mailbox; it may be the same account as the sender. */
     const char *recipient = GMAIL_RECIPIENT;
 
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (strlen(sender) > 254 || strlen(recipient) > 254 || strchr(sender, '@') == NULL ||
         strchr(recipient, '@') == NULL || strpbrk(sender, "\r\n<> \t") != NULL ||
         strpbrk(recipient, "\r\n<> \t") != NULL || strstr(sender, "REPLACE_ME") != NULL ||
         strstr(recipient, "REPLACE_ME") != NULL || strlen(GMAIL_APP_PASSWORD) != 16) {
+        /* Print an error result so the failed step is visible in the serial monitor. */
         ESP_LOGE("GMAIL", "Check local email configuration");
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -499,16 +567,24 @@ esp_err_t notifications_send_gmail(const notification_message_t *message)
      * The measurement time inside the message still says when the sensors were read.
      */
     time_t now = time(NULL);
+    /* Reserve calendar fields for UTC, including year, month, date, and time of day. */
     struct tm utc;
+    /*
+     * Reserve space for the email submission Date header, separate from the measurement
+     * timestamp.
+     */
     char date[64];
 
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (gmtime_r(&now, &utc) == NULL ||
         strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S +0000", &utc) == 0) {
+        /* Report a failed operation; do not treat this path as successful delivery. */
         return ESP_FAIL;
     }
 
     /* Build the email's From, To, Date, Subject, and text-format information. */
     char headers[1024];
+    /* Format text into a fixed-size array; check the returned required length before using it. */
     int header_length = snprintf(headers, sizeof(headers),
                                  "From: <%s>\r\n"
                                  "To: <%s>\r\n"
@@ -520,105 +596,207 @@ esp_err_t notifications_send_gmail(const notification_message_t *message)
                                  "\r\n",
                                  sender, recipient, date);
 
+    /* Reject a formatting error or text that would not fit, including its string-ending byte. */
     if (header_length < 0 || header_length >= (int)sizeof(headers)) {
+        /* Report that the available buffer/format limit could not safely hold this data. */
         return ESP_ERR_INVALID_SIZE;
     }
 
     /* Use heap memory for the larger HTML card so the task stack stays small. */
     char *plain = malloc(NOTIFICATION_TEXT_CAPACITY);
+    /* Allocate the larger HTML card separately from the notification task's stack. */
     char *html = malloc(NOTIFICATION_HTML_CAPACITY);
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (plain == NULL || html == NULL) {
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(plain);
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(html);
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
     }
+    /* Prepare a bounded shared text message; the boolean selects Telegram HTML or plain text. */
     esp_err_t result = notification_format_text(message, false, plain, NOTIFICATION_TEXT_CAPACITY);
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK)
+        /* Prepare the HTML email card without contacting Gmail. */
         result = notification_format_gmail(message, html, NOTIFICATION_HTML_CAPACITY);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK) {
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(plain);
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(html);
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
     }
 
+    /* Group the settings passed to this ESP-IDF driver, service, or protected connection. */
     esp_tls_cfg_t config = {
+        /* Check the server certificate against the trusted root certificate bundle. */
         .crt_bundle_attach = esp_crt_bundle_attach,
+        /* Set this connection/request timeout to 10,000 milliseconds (ten seconds). */
         .timeout_ms = 10000,
     };
 
+    /* Create/hold the TLS session object; release it on success and every later error path. */
     esp_tls_t *tls = esp_tls_init();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (tls == NULL) {
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(plain);
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(html);
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
     }
 
+    /* Name Gmail's SMTP server; the secure connection below uses port 465. */
     const char *host = "smtp.gmail.com";
 
     /* Open the protected connection to Gmail's SMTP server on port 465. */
     if (esp_tls_conn_new_sync(host, strlen(host), 465, &config, tls) != 1) {
+        /* Print an error result so the failed step is visible in the serial monitor. */
         ESP_LOGE("GMAIL", "TLS connection failed");
+        /* Release the TLS connection object even if authentication or a later SMTP step failed. */
         esp_tls_conn_destroy(tls);
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(plain);
+        /*
+         * Release this temporary heap allocation; free(NULL) is safe for partial-allocation
+         * cleanup.
+         */
         free(html);
+        /* Report a failed operation; do not treat this path as successful delivery. */
         return ESP_FAIL;
     }
 
+    /* Complete the server greeting and sign-in steps before naming an email recipient. */
     result = smtp_authenticate(tls);
+    /* Reserve bounded space for one SMTP command with its sender/recipient address. */
     char command[320];
+    /*
+     * Keep the produced/required text length so truncation can be rejected before using the
+     * buffer.
+     */
     int length;
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
         /* Tell Gmail which account is sending the email. */
         length = snprintf(command, sizeof(command), "MAIL FROM:<%s>\r\n", sender);
 
+        /*
+         * Reject a formatting error or text that would not fit, including its string-ending
+         * byte.
+         */
         if (length < 0 || length >= (int)sizeof(command)) {
+            /* Mark this content/command too large rather than using a truncated buffer. */
             result = ESP_ERR_INVALID_SIZE;
         } else {
+            /*
+             * Send the prepared SMTP command and require its expected acceptance code before
+             * continuing.
+             */
             result = smtp_command(tls, command, 250);
         }
     }
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
         /* Tell Gmail which address should receive the email. */
         length = snprintf(command, sizeof(command), "RCPT TO:<%s>\r\n", recipient);
 
+        /*
+         * Reject a formatting error or text that would not fit, including its string-ending
+         * byte.
+         */
         if (length < 0 || length >= (int)sizeof(command)) {
+            /* Mark this content/command too large rather than using a truncated buffer. */
             result = ESP_ERR_INVALID_SIZE;
         } else {
+            /*
+             * Send the prepared SMTP command and require its expected acceptance code before
+             * continuing.
+             */
             result = smtp_command(tls, command, 250);
         }
     }
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
         /* Ask permission to send the email headers and body next. */
         result = smtp_command(tls, "DATA\r\n", 354);
     }
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
+        /*
+         * Write every byte of this SMTP fragment, handling partial writes and its operation
+         * deadline.
+         */
         result = smtp_write_all(tls, headers, (size_t)header_length);
     }
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
+        /*
+         * Write both message alternatives and the inline image, then ask Gmail to accept the
+         * DATA block.
+         */
         result = smtp_send_body(tls, plain, html);
     }
 
+    /* Continue to the next step only if the preceding operation succeeded. */
     if (result == ESP_OK) {
         /*
          * Gmail accepted the submitted email. A matching inbox message is the delivery evidence.
          */
         ESP_LOGI("GMAIL", "SMTP server accepted the email");
 
+        /* Close the SMTP conversation politely; reply 221 acknowledges the close. */
         esp_err_t quit_result = smtp_command(tls, "QUIT\r\n", 221);
 
+        /* Handle/return the earlier failure instead of continuing with invalid output. */
         if (quit_result != ESP_OK) {
+            /* Print a warning about a recoverable problem or skipped operation. */
             ESP_LOGW("GMAIL", "Session close failed after email acceptance");
         }
     }
 
     /* Release the connection even if a step failed, then return the send result. */
     esp_tls_conn_destroy(tls);
+    /* Release this temporary heap allocation; free(NULL) is safe for partial-allocation cleanup. */
     free(plain);
+    /* Release this temporary heap allocation; free(NULL) is safe for partial-allocation cleanup. */
     free(html);
+    /* Pass the actual success/error code back to the caller; do not replace it with success. */
     return result;
 }
