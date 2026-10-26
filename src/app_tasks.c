@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include "notifications.h"
 #include "connectivity.h"
+#include "esp_timer.h"
 
 typedef struct {
     sensor_reading_t reading;
@@ -90,23 +91,35 @@ static void monitoring_task(void *parameter)
                      monitor.candidate_state,
                      monitor.consecutive_count);
 
-           if (changed) {
+         if (changed) {
     ESP_LOGI("MONITOR", "Confirmed state: %s",
              monitor.confirmed_state);
 
-    notification_event_t event = {
-        .reading = reading,
-        .moisture_percent = percent,
-    };
+    int64_t now_us = esp_timer_get_time();
 
-    snprintf(event.state, sizeof(event.state),
-             "%s", monitor.confirmed_state);
+    if (!monitoring_notification_due(
+            &monitor, monitor.confirmed_state, now_us)) {
+        ESP_LOGI("NOTIFY", "Cooldown suppressed repeated %s alert",
+                 monitor.confirmed_state);
+    } else {
+        notification_event_t event = {
+            .reading = reading,
+            .moisture_percent = percent,
+        };
 
-    if (xQueueSend(notification_queue, &event, 0) != pdTRUE) {
-        ESP_LOGW("NOTIFY",
-                 "Notification queue full; event dropped");
+        snprintf(event.state, sizeof(event.state),
+                 "%s", monitor.confirmed_state);
+
+        if (xQueueSend(notification_queue, &event, 0) == pdTRUE) {
+            monitoring_record_notification(
+                &monitor, monitor.confirmed_state, now_us);
+        } else {
+            ESP_LOGW("NOTIFY",
+                     "Notification queue full; event dropped");
+        }
     }
 }
+
         } else {
             monitoring_reset_streak(&monitor);
             ESP_LOGE("POT", "Read failed: %s",
@@ -235,6 +248,7 @@ if (notification_queue == NULL) {
         monitoring_task, "monitoring", 4096, NULL, 4, NULL);
 
     ESP_ERROR_CHECK(result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+
 
     result = xTaskCreate(
         sensor_task, "sensors", 4096, NULL, 5, NULL);
