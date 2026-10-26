@@ -393,146 +393,290 @@ static cJSON *slack_block(cJSON *blocks, const char *type)
     if (block == NULL)
         /* Return no object/pointer; the caller must handle this failed creation. */
         return NULL;
+    /* Check that every requested JSON field/child was created before exposing the final payload. */
     if (!cJSON_AddItemToArray(blocks, block)) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(block);
+        /* Return no object/pointer; the caller must handle this failed creation. */
         return NULL;
     }
+    /* Add the named string to the JSON object; NULL signals insufficient memory. */
     return cJSON_AddStringToObject(block, "type", type) != NULL ? block : NULL;
 }
+/* Attach a typed text object, such as plain_text or mrkdwn, to a Slack block. */
 static bool slack_text(cJSON *parent, const char *key, const char *type, const char *text)
 {
+    /* Attach a nested JSON object to its parent and transfer cleanup ownership. */
     cJSON *object = cJSON_AddObjectToObject(parent, key);
+    /* Add the named string to the JSON object; NULL signals insufficient memory. */
     return object != NULL && cJSON_AddStringToObject(object, "type", type) != NULL &&
+           /* Add the named string to the JSON object; NULL signals insufficient memory. */
            cJSON_AddStringToObject(object, "text", text) != NULL;
 }
+/* Add one bold Slack label and its value to the grid of reading fields. */
 static bool slack_field(cJSON *fields, const char *label, const char *value)
 {
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[192];
+    /* Stop if this intermediate display text cannot fit safely in its buffer. */
     if (write_text(text, sizeof(text), "*%s*\n%s", label, value) != ESP_OK)
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
+    /* Allocate one label/value field; attach it before handing ownership to the parent. */
     cJSON *field = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (field == NULL)
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
+    /* Check that every requested JSON field/child was created before exposing the final payload. */
     if (!cJSON_AddItemToArray(fields, field)) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(field);
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
     }
+    /* Add the named string to the JSON object; NULL signals insufficient memory. */
     return cJSON_AddStringToObject(field, "type", "mrkdwn") != NULL &&
+           /* Add the named string to the JSON object; NULL signals insufficient memory. */
            cJSON_AddStringToObject(field, "text", text) != NULL;
 }
 
+/* Build Slack's native blocks plus complete fallback text for notifications/accessibility. */
 esp_err_t notification_build_slack(const notification_message_t *message, cJSON **json)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (json == NULL)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Clear the caller's output pointer; only a complete, successful JSON tree may be published. */
     *json = NULL;
+    /* Keep this function's prepared display values or its repeatable test event. */
     display_fields_t data;
+    /* Keep this operation's success/error code so later steps can stop safely on failure. */
     esp_err_t result = prepare(message, &data);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Reserve a complete plain-text message for notification previews and non-rich clients. */
     char fallback[NOTIFICATION_TEXT_CAPACITY];
+    /* Prepare a bounded shared text message; the boolean selects Telegram HTML or plain text. */
     result = notification_format_text(message, false, fallback, sizeof(fallback));
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Allocate the outer JSON object; deleting it later also deletes its attached children. */
     cJSON *root = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (root == NULL)
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (cJSON_AddStringToObject(root, "text", fallback) == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
     cJSON *blocks = cJSON_AddArrayToObject(root, "blocks");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (blocks == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Create/reference one Slack header, section, divider, or context block. */
     cJSON *block = slack_block(blocks, "header");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL || !slack_text(block, "text", "plain_text", "Plant-01"))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Append another Slack section; the following text/fields specify this section's content. */
     block = slack_block(blocks, "section");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL || !slack_text(block, "text", "mrkdwn", "Condition update"))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Append another Slack section; the following text/fields specify this section's content. */
     block = slack_block(blocks, "section");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
     cJSON *fields = cJSON_AddArrayToObject(block, "fields");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (fields == NULL || !slack_field(fields, "State", message->state) ||
         !slack_field(fields, "Simulated moisture", data.moisture) ||
         !slack_field(fields, "Temperature", data.temperature) ||
         !slack_field(fields, "Humidity", data.humidity))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (slack_block(blocks, "divider") == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Reserve text for the measured-time label/value and optional UTC+08:00 suffix. */
     char time[192];
+    /* Stop if this intermediate display text cannot fit safely in its buffer. */
     if (write_text(time, sizeof(time), "*Measured*\n%s%s", data.measured, data.offset) != ESP_OK)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Append another Slack section; the following text/fields specify this section's content. */
     block = slack_block(blocks, "section");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL || !slack_text(block, "text", "mrkdwn", time))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Append another Slack section; the following text/fields specify this section's content. */
     block = slack_block(blocks, "section");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL || !slack_text(block, "text", "mrkdwn", "*Reason*\nConfirmed moisture state"))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Append the smaller footer/context block explaining that moisture is simulated. */
     block = slack_block(blocks, "context");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (block == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
     cJSON *elements = cJSON_AddArrayToObject(block, "elements");
+    /* Create one footer element describing the simulated measurement. */
     cJSON *element = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (element == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (elements == NULL || !cJSON_AddItemToArray(elements, element)) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(element);
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
     }
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (cJSON_AddStringToObject(element, "type", "plain_text") == NULL ||
         cJSON_AddStringToObject(element, "text", "Moisture is simulated using a potentiometer.") ==
             NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Transfer the finished tree to the caller, which must eventually call cJSON_Delete(). */
     *json = root;
+    /* Finish successfully; the caller may now use this function's output. */
     return ESP_OK;
+/* Shared failure exit: delete the owned JSON tree before reporting insufficient memory. */
 no_memory:
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(root);
+    /* Report that temporary storage could not be allocated; the caller must handle the failure. */
     return ESP_ERR_NO_MEM;
 }
 
+/* Add one Discord label/value pair; inline_field asks Discord to place it beside other fields. */
 static bool discord_field(cJSON *fields, const char *label, const char *value, bool inline_field)
 {
+    /* Allocate one label/value field; attach it before handing ownership to the parent. */
     cJSON *field = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (field == NULL)
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
+    /* Check that every requested JSON field/child was created before exposing the final payload. */
     if (!cJSON_AddItemToArray(fields, field)) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(field);
+        /* Return no/false: this check did not authorize a change, output, or action. */
         return false;
     }
+    /* Add the named string to the JSON object; NULL signals insufficient memory. */
     return cJSON_AddStringToObject(field, "name", label) != NULL &&
+           /* Add the named string to the JSON object; NULL signals insufficient memory. */
            cJSON_AddStringToObject(field, "value", value) != NULL &&
+           /*
+            * Tell Discord whether this field may share a row; the Discord app controls the final
+            * placement.
+            */
            cJSON_AddBoolToObject(field, "inline", inline_field) != NULL;
 }
+/* Build a colored Discord card and disable automatic mention parsing. */
 esp_err_t notification_build_discord(const notification_message_t *message, cJSON **json)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (json == NULL)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Clear the caller's output pointer; only a complete, successful JSON tree may be published. */
     *json = NULL;
+    /* Keep this function's prepared display values or its repeatable test event. */
     display_fields_t data;
+    /* Keep this operation's success/error code so later steps can stop safely on failure. */
     esp_err_t result = prepare(message, &data);
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Allocate the outer JSON object; deleting it later also deletes its attached children. */
     cJSON *root = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (root == NULL)
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
+    /* Attach a nested JSON object to its parent and transfer cleanup ownership. */
     cJSON *mentions = cJSON_AddObjectToObject(root, "allowed_mentions");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (mentions == NULL || cJSON_AddArrayToObject(mentions, "parse") == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
     cJSON *embeds = cJSON_AddArrayToObject(root, "embeds");
+    /* Create/reference the single Discord card that holds title, color, fields, and footer. */
     cJSON *embed = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (embed == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (embeds == NULL || !cJSON_AddItemToArray(embeds, embed)) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(embed);
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
     }
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (cJSON_AddStringToObject(embed, "title", "Plant-01") == NULL ||
         cJSON_AddStringToObject(embed, "description", "Condition update") == NULL ||
         cJSON_AddNumberToObject(embed, "color", data.color) == NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a JSON list to its parent so parent deletion also cleans up this list. */
     cJSON *fields = cJSON_AddArrayToObject(embed, "fields");
+    /* Reserve text for the measured-time label/value and optional UTC+08:00 suffix. */
     char time[192];
+    /* Stop if this intermediate display text cannot fit safely in its buffer. */
     if (write_text(time, sizeof(time), "%s%s", data.measured, data.offset) != ESP_OK)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
     /* The invisible third field keeps the two main readings paired on wide clients. */
     if (fields == NULL || !discord_field(fields, "State", message->state, true) ||
@@ -542,41 +686,80 @@ esp_err_t notification_build_discord(const notification_message_t *message, cJSO
         !discord_field(fields, "Humidity", data.humidity, true) ||
         !discord_field(fields, "Measured", time, false) ||
         !discord_field(fields, "Reason", "Confirmed moisture state", false))
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Attach a nested JSON object to its parent and transfer cleanup ownership. */
     cJSON *footer = cJSON_AddObjectToObject(embed, "footer");
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (footer == NULL ||
         cJSON_AddStringToObject(footer, "text", "Moisture is simulated using a potentiometer.") ==
             NULL)
+        /* Jump to the shared cleanup path so a partially built JSON tree cannot leak. */
         goto no_memory;
+    /* Transfer the finished tree to the caller, which must eventually call cJSON_Delete(). */
     *json = root;
+    /* Finish successfully; the caller may now use this function's output. */
     return ESP_OK;
+/* Shared failure exit: delete the owned JSON tree before reporting insufficient memory. */
 no_memory:
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(root);
+    /* Report that temporary storage could not be allocated; the caller must handle the failure. */
     return ESP_ERR_NO_MEM;
 }
 
+/* Package Telegram HTML, the destination chat ID, and the HTML parse-mode setting. */
 esp_err_t notification_build_telegram(const notification_message_t *message, const char *chat_id,
                                       cJSON **json)
 {
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (json == NULL)
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Clear the caller's output pointer; only a complete, successful JSON tree may be published. */
     *json = NULL;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (chat_id == NULL || chat_id[0] == '\0')
+        /* Reject an absent, unsafe, or out-of-range input before using it. */
         return ESP_ERR_INVALID_ARG;
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[NOTIFICATION_TEXT_CAPACITY];
+    /* Prepare a bounded shared text message; the boolean selects Telegram HTML or plain text. */
     esp_err_t result = notification_format_text(message, true, text, sizeof(text));
+    /* Handle/return the earlier failure instead of continuing with invalid output. */
     if (result != ESP_OK)
+        /* Pass the actual success/error code back to the caller; do not replace it with success. */
         return result;
+    /* Allocate the outer JSON object; deleting it later also deletes its attached children. */
     cJSON *root = cJSON_CreateObject();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (root == NULL)
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (cJSON_AddStringToObject(root, "chat_id", chat_id) == NULL ||
         cJSON_AddStringToObject(root, "text", text) == NULL ||
         cJSON_AddStringToObject(root, "parse_mode", "HTML") == NULL) {
+        /*
+         * Free this JSON tree and all children already attached to it; this does not free
+         * serialized text.
+         */
         cJSON_Delete(root);
+        /*
+         * Report that temporary storage could not be allocated; the caller must handle the
+         * failure.
+         */
         return ESP_ERR_NO_MEM;
     }
+    /* Transfer the finished tree to the caller, which must eventually call cJSON_Delete(). */
     *json = root;
+    /* Finish successfully; the caller may now use this function's output. */
     return ESP_OK;
 }
 
