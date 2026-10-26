@@ -1,4 +1,7 @@
 # Name,   Type, SubType, Offset,  Size,     Flags
+# Reserve 24 KiB of NVS storage at 0x9000 for settings such as saved Wi-Fi credentials.
 nvs,      data, nvs,     0x9000,  0x6000,
+# Reserve 4 KiB at 0xf000 for PHY initialization data.
 phy_init, data, phy,     0xf000,  0x1000,
+# Reserve a 4 MiB factory application at 0x10000; this table has no separate OTA application slots.
 factory,  app,  factory, 0x10000, 0x400000,
