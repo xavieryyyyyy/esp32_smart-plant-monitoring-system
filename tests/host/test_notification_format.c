@@ -291,122 +291,276 @@ static void invalid_values_are_rejected(void)
      * function.
      */
     data.moisture_percent = 101;
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
+    /* Reset all dummy readings/flags before testing a different invalid input. */
     data = sample();
+    /*
+     * Supply an intentionally nonfinite test value to verify that invalid measurements are
+     * handled safely.
+     */
     data.temperature = INFINITY;
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
+    /* Reset all dummy readings/flags before testing a different invalid input. */
     data = sample();
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.humidity = -1.0f;
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
 }
+/*
+ * Check that formatting does not publish truncated text; use controlled inputs rather than live
+ * sensors.
+ */
 static void formatting_does_not_publish_truncated_text(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[12];
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_text(&data, true, text, sizeof(text)) == ESP_ERR_INVALID_SIZE);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(text[0] == '\0');
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_gmail(&data, text, sizeof(text)) == ESP_ERR_INVALID_SIZE);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(text[0] == '\0');
 }
+/*
+ * Check that telegram has bold labels and html mode; use controlled inputs rather than live
+ * sensors.
+ */
 static void telegram_has_bold_labels_and_html_mode(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_telegram(&data, "demo\"chat", &json) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(json, "parse_mode"), "HTML"));
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(json, "chat_id"), "demo\"chat"));
+    /* Look up Telegram's generated text field, then check its type and content below. */
     const cJSON *text = get(json, "text");
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_IsString(text));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text->valuestring, "<b>State:</b> DRY"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text->valuestring, "<b>Measured</b>"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text->valuestring, "8:15:54 AM PhST"));
+    /* Turn the JSON tree into compact request text with correctly escaped string values. */
     char *body = cJSON_PrintUnformatted(json);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(body);
+    /* Read serialized JSON back into a tree to verify that escaping produced valid JSON. */
     cJSON *parsed = cJSON_Parse(body);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(parsed);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(parsed);
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("telegram.json", body);
+    /* Free the separately allocated JSON request text after the client has finished using it. */
     cJSON_free(body);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(json);
 }
+/*
+ * Check that slack has fields and accessible fallback; use controlled inputs rather than live
+ * sensors.
+ */
 static void slack_has_fields_and_accessible_fallback(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_slack(&data, &json) == ESP_OK);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_IsArray(get(json, "blocks")));
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_IsString(get(json, "text")));
+    /* Create/reference Slack's ordered list of layout blocks. */
     const cJSON *blocks = get(json, "blocks");
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(blocks) >= 6);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(cJSON_GetArrayItem(blocks, 0), "type"), "header"));
+    /* Hold display values or the service's named reading fields, depending on this helper. */
     const cJSON *fields = get(cJSON_GetArrayItem(blocks, 2), "fields");
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(fields) == 4);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "text"), "*State*\nDRY"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(get(json, "text")->valuestring, "8:15:54 AM PhST"));
+    /* Turn the JSON tree into compact request text with correctly escaped string values. */
     char *body = cJSON_PrintUnformatted(json);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(body);
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("slack.json", body);
+    /* Free the separately allocated JSON request text after the client has finished using it. */
     cJSON_free(body);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(json);
 }
+/* Check that discord has embed and no mentions; use controlled inputs rather than live sensors. */
 static void discord_has_embed_and_no_mentions(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
+    /* Create/reference Discord's list of rich cards; this message uses one card. */
     const cJSON *embeds = get(json, "embeds");
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(embeds) == 1);
+    /* Create/reference the single Discord card that holds title, color, fields, and footer. */
     const cJSON *embed = cJSON_GetArrayItem(embeds, 0);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(embed, "title"), "Plant-01"));
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(get(embed, "color")->valueint == 0xd5a34b);
+    /* Hold display values or the service's named reading fields, depending on this helper. */
     const cJSON *fields = get(embed, "fields");
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(fields) == 7);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "name"), "State"));
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(string_is(get(cJSON_GetArrayItem(fields, 0), "value"), "DRY"));
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_IsTrue(get(cJSON_GetArrayItem(fields, 0), "inline")));
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(cJSON_GetArraySize(get(get(json, "allowed_mentions"), "parse")) == 0);
+    /* Turn the JSON tree into compact request text with correctly escaped string values. */
     char *body = cJSON_PrintUnformatted(json);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(body);
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("discord.json", body);
+    /* Free the separately allocated JSON request text after the client has finished using it. */
     cJSON_free(body);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(json);
 }
+/*
+ * Check that gmail matches the design and has time; use controlled inputs rather than live
+ * sensors.
+ */
 static void gmail_matches_the_design_and_has_time(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char *text = malloc(NOTIFICATION_HTML_CAPACITY);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(text);
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_gmail(&data, text, NOTIFICATION_HTML_CAPACITY) == ESP_OK);
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "<html"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "font-family:Inter"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "#173f32"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "#fbefcf"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "cid:plant-mark"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "8:15:54 AM PhST"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "28.0"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "77.0%"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "potentiometer"));
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("gmail.html", text);
+    /* Release this temporary heap allocation; free(NULL) is safe for partial-allocation cleanup. */
     free(text);
 }
+/*
+ * Check that all conditions keep their own colors; use controlled inputs rather than live
+ * sensors.
+ */
 static void all_conditions_keep_their_own_colors(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.state = "NORMAL";
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(get(cJSON_GetArrayItem(get(json, "embeds"), 0), "color")->valueint == 0x3d8061);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(json);
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.state = "WET";
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_build_discord(&data, &json) == ESP_OK);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(get(cJSON_GetArrayItem(get(json, "embeds"), 0), "color")->valueint == 0x4089b8);
+    /*
+     * Free this JSON tree and all children already attached to it; this does not free serialized
+     * text.
+     */
     cJSON_Delete(json);
 }
+/*
+ * Check that missing dht and clock render on every channel; use controlled inputs rather than
+ * live sensors.
+ */
 static void missing_dht_and_clock_render_on_every_channel(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Start with no JSON tree; the builder supplies one only after it finishes successfully. */
     cJSON *json = NULL;
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[NOTIFICATION_HTML_CAPACITY];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.environment_valid = false;
     data.time_valid = false;
     for (int channel = 0; channel < 3; channel++) {
