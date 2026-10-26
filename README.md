@@ -448,7 +448,7 @@ These records distinguish hardware observations, controlled fault injection, and
 | T1 Startup/sensing | Periodic sensors, units, timestamps | [Timestamped delivery](docs/results/slack-delivery-test.md); DHT intermittently times out | Observed with limits |
 | T2 Calibration/states | Controlled dry/wet soil conditions | [Potentiometer conversion and three states](docs/progress.md) | Adapted; soil calibration absent |
 | T3 Invalid readings | Flag missing, implausible, invalid, stale inputs | [DHT disconnect](docs/results/dht11-disconnection-test.md), [numeric checks](docs/results/sensor-validation-test.md), [stale injection](docs/results/stale-sample-test.md) | Partial; numeric rejection injection pending |
-| T4 Policy | Real confirmed alert and cooldown suppression | [DRY → NORMAL → DRY](docs/results/notification-cooldown-test.md); six tests reported passing | Observed; queue-based cooldown limits apply |
+| T4 Policy | Real confirmed alert and cooldown suppression | [DRY → NORMAL → DRY](docs/results/notification-cooldown-test.md); six tests passed with screenshot evidence | Observed; queue-based cooldown limits apply |
 | T5 Wi-Fi loss | Detect loss, keep monitoring, reconnect | [Device-originated disconnect](docs/results/wifi-reconnection-test.md), about 4.83-second recovery | Partial; router outage/precise sensing continuity unproven |
 | T6 Service errors | Log rejection and bound retries | [Slack 503/429 injection](docs/results/slack-retry-test.md) | Partial; other channels and parser cases pending |
 | T7 Four channels | Matching real recipient outputs | [Gmail/Telegram/Discord/Slack evidence](#gallery) and integrated acceptance logs | Adapted; final shared-event recipient capture pending |
@@ -469,7 +469,7 @@ The current [Unity suite](test/test_monitoring/test_main.c) contains six cases:
 5. Independent DRY/WET cooldown clocks.
 6. NORMAL recovery eligibility during cooldown.
 
-Six passes were reported during development. The [original unit-test record/screenshot](docs/results/monitoring-unit-tests.md) retains the earlier three-test baseline. Its statement that cooldown was unimplemented is historical and superseded by [the cooldown record](docs/results/notification-cooldown-test.md) and current source. A new six-test terminal capture is still needed to update that older record.
+The expanded run passed all six tests in 123.671 seconds, including build and upload. The [updated test record](docs/results/monitoring-unit-tests.md) includes the [six-test screenshot](docs/results/monitoring-six-tests.png), the original three-test baseline, and observations after restoring the normal application. The older baseline predates cooldown implementation.
 
 Cooldown tests use synthetic time, not a 15-minute hardware wait. Tests do not yet cover raw conversion, message formatting, numeric rejection, physical ADC error, sequence gaps, or overflow. Reset is exercised directly, not through a physical ADC fault.
 
@@ -549,7 +549,7 @@ These screenshots are actual project evidence from different runs. Their timesta
 
 About 15 seconds at a stable setting normally provides three samples regardless of sampling phase. Fast consecutive transitions can create a delivery backlog: events carry acquisition-time values, not the newest values at send time.
 
-**Still needed:** fresh six-test capture, final matching four-recipient capture, and a short narrated video or instructor-directed live demonstration. No fabricated report/video link is included.
+**Still needed:** final matching four-recipient capture, and a short narrated video or instructor-directed live demonstration. No fabricated report/video link is included.
 
 <a id="lab-requirements"></a>
 ## <img src="docs/assets/readme/icons/ClipboardCheck.svg" width="24" height="24" alt=""> Laboratory requirements and deliverables
@@ -715,7 +715,7 @@ One run logged advertising error `rc = 30` during cleanup after acceptance/IP ac
 | Connectivity | Reprovision trigger, prolonged outage and endurance tests |
 | API resilience | Other-channel retry/rate/error handling; Slack parser/failure coverage |
 | Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, analyzer version |
-| Submission | Same-event recipient evidence, six-test screenshot, PDF report, video/live demo |
+| Submission | Same-event recipient evidence, PDF report, video/live demo |
 
 These items remain visible so a reviewer can separate implementation from proof. Changes need their own reviewed milestones and repeat-test evidence.
 
@@ -780,4 +780,5 @@ Manifests declare direct dependencies; the lock file records versions/hashes. Th
 ---
 
 [Back to contents](#contents) · [Development record](docs/progress.md) · [Test records](docs/results/)
+
 
