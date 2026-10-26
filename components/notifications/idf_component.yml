@@ -1,4 +1,7 @@
 # Ask for cJSON, used to build service messages and read Telegram's reply.
+# Declare managed dependencies used by the notification component.
 dependencies:
+  # Use the cJSON tree/parser implementation for outgoing chat messages and received replies.
   espressif/cjson:
+    # Request the existing compatible cJSON release range recorded by this project.
     version: "1.7.19~2"
