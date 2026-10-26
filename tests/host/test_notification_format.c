@@ -1,13 +1,31 @@
+/* Use the shared text, PhST, and JSON builders instead of duplicating layouts. */
+/*
+ * These tests run on the computer through scripts/test_notification_format.py.
+ * They call the REAL formatter with dummy data; they do not read sensors or send messages.
+ * CHECK records a failure and leaves the current test. RUN calls each named test,
+ * counts cases, and prints PASS/FAIL. Their backslashes continue each macro definition.
+ * The allocation-budget cases intentionally make cJSON run out of memory to check
+ * cleanup. A passing host run does not prove delivery or phone rendering on hardware.
+ */
 #include "notification_format.h"
+/* Use integer limits to reject arithmetic that would overflow. */
 #include <limits.h>
+/* Check for invalid floating-point values, including NaN and infinity. */
 #include <math.h>
+/* Format bounded text with snprintf(), or use file/console I/O in host tests. */
 #include <stdio.h>
+/* Allocate/free temporary memory, and provide standard utility functions. */
 #include <stdlib.h>
+/* Measure, compare, copy, or search text and byte arrays. */
 #include <string.h>
 
+/* Count failed offline checks so the executable can return a failing exit code. */
 static int failures;
+/* Count named test cases; this is separate from the number of individual assertions. */
 static int cases;
+/* Remember where the test runner wants generated example files saved. */
 static const char *artifacts;
+/* Test this condition; print its location, count a failure, and leave the current test if false. */
 #define CHECK(condition)                                                                           \
     do {                                                                                           \
         if (!(condition)) {                                                                        \
@@ -17,122 +35,261 @@ static const char *artifacts;
         }                                                                                          \
     } while (0)
 
+/*
+ * Create repeatable dummy readings/time so tests compare against known values rather than live
+ * sensors.
+ */
 static notification_message_t sample(void)
 {
+    /*
+     * Return a fresh known DRY sample; the same captured values make each formatting test
+     * repeatable.
+     */
     return (notification_message_t){.state = "DRY",
+                                    /*
+                                     * Copy this captured event's simulated percentage, not a
+                                     * newer live reading.
+                                     */
                                     .moisture_percent = 26,
+                                    /*
+                                     * Use temperature captured with this event;
+                                     * environment_valid determines whether it is displayed.
+                                     */
                                     .temperature = 28.0f,
+                                    /*
+                                     * Use humidity from the same captured reading, keeping the
+                                     * values paired.
+                                     */
                                     .humidity = 77.0f,
+                                    /*
+                                     * Mark both environment values usable only if this event's
+                                     * DHT read succeeded.
+                                     */
                                     .environment_valid = true,
+                                    /*
+                                     * Keep the original captured Unix time; the formatter
+                                     * converts only its display to PhST.
+                                     */
                                     .measured_at = (time_t)1792973754,
+                                    /*
+                                     * Carry the acquisition-time validity flag instead of
+                                     * substituting a later synchronized time.
+                                     */
                                     .time_valid = true};
 }
 
+/* Save a generated example in the requested temporary output folder for inspection. */
 static void save_text(const char *name, const char *text)
 {
+    /* Reserve a bounded path buffer for a generated test artifact. */
     char filename[1024];
+    /* Format text into a fixed-size array; check the returned required length before using it. */
     int count = snprintf(filename, sizeof(filename), "%s/%s", artifacts, name);
+    /* Reject a generated artifact path that failed formatting or would be truncated. */
     if (count < 0 || count >= (int)sizeof(filename)) {
+        /* Count this failed host check so the final executable exits with failure. */
         failures++;
+        /* Leave this function now; no valid result/action is available on this path. */
         return;
     }
+    /* Open the generated example file in binary mode to preserve its exact UTF-8/text bytes. */
     FILE *file = fopen(filename, "wb");
+    /* Stop if the local artifact file could not be opened. */
     if (!file) {
+        /* Count this failed host check so the final executable exits with failure. */
         failures++;
+        /* Leave this function now; no valid result/action is available on this path. */
         return;
     }
+    /* Write these captured/generated bytes to the opened local test artifact file. */
     fwrite(text, 1, strlen(text), file);
+    /* Close the local file so its saved output is complete and the handle is released. */
     fclose(file);
 }
 
+/* Look up a named JSON field while preserving the exact spelling of its key. */
 static const cJSON *get(const cJSON *object, const char *key)
 {
+    /* Return the named JSON child without changing key capitalization. */
     return cJSON_GetObjectItemCaseSensitive(object, key);
 }
+/* Check that a JSON value really is text and matches the expected text exactly. */
 static bool string_is(const cJSON *value, const char *expected)
 {
+    /* Require a real JSON string, then compare its characters with the expected value. */
     return cJSON_IsString(value) && strcmp(value->valuestring, expected) == 0;
 }
 
+/* Check that phst uses captured time; use controlled inputs rather than live sensors. */
 static void phst_uses_captured_time(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[96];
+    /* Keep the captured timestamp so the test can detect accidental modification. */
     time_t original = data.measured_at;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(strcmp(text, "26 October 2026, 8:15:54 AM PhST") == 0);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(data.measured_at == original);
 }
+/* Check that phst crosses year; use controlled inputs rather than live sensors. */
 static void phst_crosses_year(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[96];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.measured_at = (time_t)1767225599;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(strcmp(text, "1 January 2026, 7:59:59 AM PhST") == 0);
 }
+/* Check that phst midnight and noon; use controlled inputs rather than live sensors. */
 static void phst_midnight_and_noon(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[96];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.measured_at = (time_t)1792944000;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(strcmp(text, "26 October 2026, 12:00:00 AM PhST") == 0);
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.measured_at += (time_t)(12 * 60 * 60);
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(strcmp(text, "26 October 2026, 12:00:00 PM PhST") == 0);
 }
+/* Check that unknown clock is explicit; use controlled inputs rather than live sensors. */
 static void unknown_clock_is_explicit(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[96];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.time_valid = false;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_OK);
+    /* Require an exact match with the expected display string or JSON field value. */
     CHECK(strcmp(text, "Unavailable (clock not synchronized)") == 0);
 }
+/* Check that short time buffer is rejected; use controlled inputs rather than live sensors. */
 static void short_time_buffer_is_rejected(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[8];
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_time(&data, text, sizeof(text)) == ESP_ERR_INVALID_SIZE);
+    /* Assert this expected property; a failed CHECK records the failure and leaves this case. */
     CHECK(text[0] == '\0');
 }
+/* Check that plain text has complete values; use controlled inputs rather than live sensors. */
 static void plain_text_has_complete_values(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[NOTIFICATION_TEXT_CAPACITY];
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_OK);
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "State: DRY"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Simulated moisture: 26%"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Temperature: 28.0 \xC2\xB0"
                        "C"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Humidity: 77.0%"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "26 October 2026, 8:15:54 AM PhST"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "UTC+08:00"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Confirmed moisture state"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "potentiometer"));
+    /* Save this generated example so it can be inspected without sending a live message. */
     save_text("notification.txt", text);
 }
+/* Check that failed dht keeps measured time; use controlled inputs rather than live sensors. */
 static void failed_dht_keeps_measured_time(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[NOTIFICATION_TEXT_CAPACITY];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.environment_valid = false;
+    /*
+     * Supply an intentionally nonfinite test value to verify that invalid measurements are
+     * handled safely.
+     */
     data.temperature = NAN;
+    /*
+     * Supply an intentionally nonfinite test value to verify that invalid measurements are
+     * handled safely.
+     */
     data.humidity = NAN;
+    /* Require successful formatting/building before examining the resulting text or JSON. */
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_OK);
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Temperature: Unavailable"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "Humidity: Unavailable"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(strstr(text, "8:15:54 AM PhST"));
+    /* Require this expected content (or its absence with !) in the generated message. */
     CHECK(!strstr(text, "nan"));
 }
+/* Check that invalid values are rejected; use controlled inputs rather than live sensors. */
 static void invalid_values_are_rejected(void)
 {
+    /* Keep this function's prepared display values or its repeatable test event. */
     notification_message_t data = sample();
+    /* Reserve a bounded character array for generated text, including its final zero byte. */
     char text[NOTIFICATION_TEXT_CAPACITY];
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.state = "<b>WET</b>";
+    /* Require the intended error code for this deliberately invalid input or undersized buffer. */
     CHECK(notification_format_text(&data, true, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
+    /* Reset all dummy readings/flags before testing a different invalid input. */
     data = sample();
+    /*
+     * Set this controlled test input/flag for the scenario named by the surrounding test
+     * function.
+     */
     data.moisture_percent = 101;
     CHECK(notification_format_text(&data, false, text, sizeof(text)) == ESP_ERR_INVALID_ARG);
     data = sample();
