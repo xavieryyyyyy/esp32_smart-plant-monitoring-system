@@ -6,6 +6,7 @@
  * The webhook URL is a secret. Keep it out of logs and public firmware files.
  */
 #include "notifications.h"
+#include "notification_format.h"
 #include "config.local.h"
 #include "connectivity.h"
 #include <errno.h>
@@ -56,12 +57,13 @@ static esp_err_t slack_http_event(esp_http_client_event_t *event)
  * Try one Slack request. Return its HTTP status and any server-supplied wait time.
  * notifications_send_slack() below uses these values to decide whether to try again.
  */
-static esp_err_t slack_send_once(const char *message, int *http_status, int *retry_after)
+static esp_err_t slack_send_once(const notification_message_t *message, int *http_status,
+                                 int *retry_after)
 {
     *http_status = 0;
     *retry_after = -1;
 
-    if (message == NULL || message[0] == '\0') {
+    if (message == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -81,16 +83,12 @@ static esp_err_t slack_send_once(const char *message, int *http_status, int *ret
     }
 
     /*
-     * Build the request Slack expects: a JSON object with our message in its text field.
+     * Build Slack's aligned fields and a full plain-text fallback for notifications.
      */
-    cJSON *json = cJSON_CreateObject();
-    if (json == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    if (cJSON_AddStringToObject(json, "text", message) == NULL) {
-        cJSON_Delete(json);
-        return ESP_ERR_NO_MEM;
+    cJSON *json = NULL;
+    esp_err_t format_result = notification_build_slack(message, &json);
+    if (format_result != ESP_OK) {
+        return format_result;
     }
 
     char *body = cJSON_PrintUnformatted(json);
@@ -160,7 +158,7 @@ static esp_err_t slack_send_once(const char *message, int *http_status, int *ret
  * The notification task calls this function for each message.
  * It remembers Slack's wait rules between calls, but does not save messages across restarts.
  */
-esp_err_t notifications_send_slack(const char *message)
+esp_err_t notifications_send_slack(const notification_message_t *message)
 {
     /*
      * static keeps these values between calls. Only the one notification task uses them.

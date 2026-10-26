@@ -5,6 +5,7 @@
  * This function makes one send attempt per call.
  */
 #include "notifications.h"
+#include "notification_format.h"
 #include "config.local.h"
 #include "connectivity.h"
 
@@ -55,9 +56,9 @@ static esp_err_t telegram_http_event(esp_http_client_event_t *event)
     return ESP_OK;
 }
 
-esp_err_t notifications_send_telegram(const char *message)
+esp_err_t notifications_send_telegram(const notification_message_t *message)
 {
-    if (message == NULL || message[0] == '\0' || strlen(message) > 4096) {
+    if (message == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -79,16 +80,11 @@ esp_err_t notifications_send_telegram(const char *message)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    /* Tell Telegram which chat receives the message and what text to send. */
-    cJSON *json = cJSON_CreateObject();
-    if (json == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    if (cJSON_AddStringToObject(json, "chat_id", TELEGRAM_CHAT_ID) == NULL ||
-        cJSON_AddStringToObject(json, "text", message) == NULL) {
-        cJSON_Delete(json);
-        return ESP_ERR_NO_MEM;
+    /* Format the captured event with bold labels and Telegram HTML parsing. */
+    cJSON *json = NULL;
+    esp_err_t format_result = notification_build_telegram(message, TELEGRAM_CHAT_ID, &json);
+    if (format_result != ESP_OK) {
+        return format_result;
     }
 
     char *body = cJSON_PrintUnformatted(json);

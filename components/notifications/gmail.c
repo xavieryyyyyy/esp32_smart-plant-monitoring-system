@@ -6,6 +6,7 @@
  * Each call tries one email session. Failed emails are not automatically resent.
  */
 #include "notifications.h"
+#include "notification_format.h"
 #include "config.local.h"
 #include "connectivity.h"
 #include "mbedtls/platform_util.h"
@@ -193,13 +194,13 @@ static esp_err_t smtp_authenticate(esp_tls_t *tls)
 
 /*
  * Convert the email text to Base64 and send it in lines of at most 76 characters.
- * The final dot on its own line tells Gmail that the email body is finished.
+ * The multipart sender below writes the final dot only after every part is complete.
  */
-static esp_err_t smtp_send_body(esp_tls_t *tls, const char *message)
+static esp_err_t smtp_write_base64_body(esp_tls_t *tls, const char *message)
 {
     size_t input_length = strlen(message);
 
-    if (input_length == 0 || input_length > 4096) {
+    if (input_length == 0 || input_length >= NOTIFICATION_HTML_CAPACITY) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -247,12 +248,53 @@ static esp_err_t smtp_send_body(esp_tls_t *tls, const char *message)
         return result;
     }
 
+    return ESP_OK;
+}
+
+/*
+ * Send one email with a plain-text alternative, the HTML card, and its inline plant mark.
+ * A mail reader chooses the version it supports. End SMTP DATA once, after all parts.
+ */
+static esp_err_t smtp_send_body(esp_tls_t *tls, const char *plain, const char *html)
+{
+    const char *start =
+        "--plant-monitor-related\r\n"
+        "Content-Type: multipart/alternative; boundary=\"plant-monitor-alternative\"\r\n\r\n"
+        "--plant-monitor-alternative\r\n"
+        "Content-Type: text/plain; charset=UTF-8\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n";
+    const char *html_start = "\r\n--plant-monitor-alternative\r\n"
+                             "Content-Type: text/html; charset=UTF-8\r\n"
+                             "Content-Transfer-Encoding: base64\r\n\r\n";
+    const char *image_start = "\r\n--plant-monitor-alternative--\r\n"
+                              "--plant-monitor-related\r\n"
+                              "Content-Type: image/png\r\n"
+                              "Content-Transfer-Encoding: base64\r\n"
+                              "Content-ID: <plant-mark>\r\n"
+                              "Content-Disposition: inline; filename=\"plant-mark.png\"\r\n\r\n";
+    const char *end = "--plant-monitor-related--\r\n";
+
+    esp_err_t result = smtp_write_all(tls, start, strlen(start));
+    if (result == ESP_OK)
+        result = smtp_write_base64_body(tls, plain);
+    if (result == ESP_OK)
+        result = smtp_write_all(tls, html_start, strlen(html_start));
+    if (result == ESP_OK)
+        result = smtp_write_base64_body(tls, html);
+    if (result == ESP_OK)
+        result = smtp_write_all(tls, image_start, strlen(image_start));
+    if (result == ESP_OK)
+        result = smtp_write_all(tls, notification_mark_base64, strlen(notification_mark_base64));
+    if (result == ESP_OK)
+        result = smtp_write_all(tls, end, strlen(end));
+    if (result != ESP_OK)
+        return result;
     return smtp_command(tls, ".\r\n", 250);
 }
 
-esp_err_t notifications_send_gmail(const char *message)
+esp_err_t notifications_send_gmail(const notification_message_t *message)
 {
-    if (message == NULL || message[0] == '\0' || strlen(message) > 4096) {
+    if (message == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -295,13 +337,30 @@ esp_err_t notifications_send_gmail(const char *message)
                                  "Date: %s\r\n"
                                  "Subject: Plant-01 condition update\r\n"
                                  "MIME-Version: 1.0\r\n"
-                                 "Content-Type: text/plain; charset=UTF-8\r\n"
-                                 "Content-Transfer-Encoding: base64\r\n"
+                                 "Content-Type: multipart/related; type=\"multipart/alternative\"; "
+                                 "boundary=\"plant-monitor-related\"\r\n"
                                  "\r\n",
                                  sender, recipient, date);
 
     if (header_length < 0 || header_length >= (int)sizeof(headers)) {
         return ESP_ERR_INVALID_SIZE;
+    }
+
+    /* Use heap memory for the larger HTML card so the task stack stays small. */
+    char *plain = malloc(NOTIFICATION_TEXT_CAPACITY);
+    char *html = malloc(NOTIFICATION_HTML_CAPACITY);
+    if (plain == NULL || html == NULL) {
+        free(plain);
+        free(html);
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t result = notification_format_text(message, false, plain, NOTIFICATION_TEXT_CAPACITY);
+    if (result == ESP_OK)
+        result = notification_format_gmail(message, html, NOTIFICATION_HTML_CAPACITY);
+    if (result != ESP_OK) {
+        free(plain);
+        free(html);
+        return result;
     }
 
     esp_tls_cfg_t config = {
@@ -311,6 +370,8 @@ esp_err_t notifications_send_gmail(const char *message)
 
     esp_tls_t *tls = esp_tls_init();
     if (tls == NULL) {
+        free(plain);
+        free(html);
         return ESP_ERR_NO_MEM;
     }
 
@@ -320,10 +381,12 @@ esp_err_t notifications_send_gmail(const char *message)
     if (esp_tls_conn_new_sync(host, strlen(host), 465, &config, tls) != 1) {
         ESP_LOGE("GMAIL", "TLS connection failed");
         esp_tls_conn_destroy(tls);
+        free(plain);
+        free(html);
         return ESP_FAIL;
     }
 
-    esp_err_t result = smtp_authenticate(tls);
+    result = smtp_authenticate(tls);
     char command[320];
     int length;
 
@@ -359,7 +422,7 @@ esp_err_t notifications_send_gmail(const char *message)
     }
 
     if (result == ESP_OK) {
-        result = smtp_send_body(tls, message);
+        result = smtp_send_body(tls, plain, html);
     }
 
     if (result == ESP_OK) {
@@ -377,5 +440,7 @@ esp_err_t notifications_send_gmail(const char *message)
 
     /* Release the connection even if a step failed, then return the send result. */
     esp_tls_conn_destroy(tls);
+    free(plain);
+    free(html);
     return result;
 }

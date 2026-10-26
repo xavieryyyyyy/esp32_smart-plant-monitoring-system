@@ -4,6 +4,7 @@
  * Check Wi-Fi and the clock first, then make one send attempt per function call.
  */
 #include "notifications.h"
+#include "notification_format.h"
 #include "config.local.h"
 #include "connectivity.h"
 
@@ -14,9 +15,9 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 
-esp_err_t notifications_send_discord(const char *message)
+esp_err_t notifications_send_discord(const notification_message_t *message)
 {
-    if (message == NULL || message[0] == '\0' || strlen(message) > 2000) {
+    if (message == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -44,19 +45,11 @@ esp_err_t notifications_send_discord(const char *message)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    /* Build Discord's JSON message. JSON stores text under field names such as content. */
-    cJSON *json = cJSON_CreateObject();
-    if (json == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    /* Keep mentions disabled so message text cannot accidentally alert users or roles. */
-    cJSON *mentions = cJSON_AddObjectToObject(json, "allowed_mentions");
-
-    if (mentions == NULL || cJSON_AddArrayToObject(mentions, "parse") == NULL ||
-        cJSON_AddStringToObject(json, "content", message) == NULL) {
-        cJSON_Delete(json);
-        return ESP_ERR_NO_MEM;
+    /* Build the native Discord embed. The shared formatter also disables mentions. */
+    cJSON *json = NULL;
+    esp_err_t format_result = notification_build_discord(message, &json);
+    if (format_result != ESP_OK) {
+        return format_result;
     }
 
     char *body = cJSON_PrintUnformatted(json);

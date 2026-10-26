@@ -7,8 +7,25 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
+#include <time.h>
 
-esp_err_t notifications_send_slack(const char *message);
-esp_err_t notifications_send_discord(const char *message);
-esp_err_t notifications_send_telegram(const char *message);
-esp_err_t notifications_send_gmail(const char *message);
+/*
+ * Keep the values from one captured event together. Each sender chooses its own layout.
+ * measured_at remains the original UTC Unix time; only its displayed text becomes PhST.
+ * state points to the caller's word and must stay available until the send returns.
+ */
+typedef struct {
+    const char *state;
+    int moisture_percent;
+    float temperature;
+    float humidity;
+    bool environment_valid;
+    time_t measured_at;
+    bool time_valid;
+} notification_message_t;
+
+esp_err_t notifications_send_slack(const notification_message_t *message);
+esp_err_t notifications_send_discord(const notification_message_t *message);
+esp_err_t notifications_send_telegram(const notification_message_t *message);
+esp_err_t notifications_send_gmail(const notification_message_t *message);
