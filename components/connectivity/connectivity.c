@@ -272,36 +272,72 @@ static void connection_event_handler(void *argument, esp_event_base_t event_base
             case NETWORK_PROV_WIFI_CRED_RECV:
                 /* Print an informational progress/result line with a tag for the serial monitor. */
                 ESP_LOGI("PROVISION", "Wi-Fi credentials received");
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
 
             /* The supplied Wi-Fi details did not work. Allow another phone setup attempt. */
             case NETWORK_PROV_WIFI_CRED_FAIL: {
+                /* Print a warning about a recoverable problem or skipped operation. */
                 ESP_LOGW("PROVISION", "Credentials failed; allowing another setup attempt");
 
+                /*
+                 * Keep this operation's success/error code so later steps can stop safely on
+                 * failure.
+                 */
                 esp_err_t result = network_prov_mgr_reset_wifi_sm_state_on_failure();
 
+                /* Handle/return the earlier failure instead of continuing with invalid output. */
                 if (result != ESP_OK) {
+                    /* Print an error result so the failed step is visible in the serial monitor. */
                     ESP_LOGE("PROVISION", "Setup reset failed: %s", esp_err_to_name(result));
                 }
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
             }
 
             /* The supplied Wi-Fi details worked. */
             case NETWORK_PROV_WIFI_CRED_SUCCESS:
+                /* Print an informational progress/result line with a tag for the serial monitor. */
                 ESP_LOGI("PROVISION", "Wi-Fi credentials accepted");
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
 
             /*
              * Phone setup is finished. Free its resources and return to normal Wi-Fi handling.
              */
             case NETWORK_PROV_END:
+                /* Release provisioning-manager resources; saved Wi-Fi credentials remain in NVS. */
                 network_prov_mgr_deinit();
+                /*
+                 * Turn off the named shared readiness/setup flag without clearing unrelated
+                 * flags.
+                 */
                 xEventGroupClearBits(connection_events, PROVISIONING_BIT);
+                /* Wake the reconnect task; let that task perform any delayed connection work. */
                 xTaskNotifyGive(reconnect_task_handle);
+                /* Print an informational progress/result line with a tag for the serial monitor. */
                 ESP_LOGI("PROVISION", "Phone setup finished");
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
 
+            /* Ignore other provisioning events that need no action from this application. */
             default:
+                /*
+                 * Leave the nearest loop or switch; do not execute its remaining steps for this
+                 * item.
+                 */
                 break;
         }
     }
@@ -314,13 +350,22 @@ static void connection_event_handler(void *argument, esp_event_base_t event_base
  */
 static void time_sync_callback(struct timeval *value)
 {
+    /* Reserve calendar fields for UTC, including year, month, date, and time of day. */
     struct tm utc;
+    /* Reserve text space for the UTC date/time printed in the serial monitor. */
     char timestamp[32];
 
+    /* Convert the SNTP timestamp into UTC calendar fields; &utc gives the destination address. */
     gmtime_r(&value->tv_sec, &utc);
+    /*
+     * Format those calendar fields into bounded text for the serial log; notifications use their
+     * own PhST formatter.
+     */
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S UTC", &utc);
 
+    /* Print an informational progress/result line with a tag for the serial monitor. */
     ESP_LOGI("TIME", "Clock synchronized: %s", timestamp);
+    /* Turn on the named shared readiness/setup flag without changing the other flags. */
     xEventGroupSetBits(connection_events, TIME_READY_BIT);
 }
 
@@ -331,54 +376,92 @@ void connectivity_start(void)
      * Prepare saved settings and the ESP-IDF network system. ESP_ERROR_CHECK stops on failure.
      */
     ESP_ERROR_CHECK(nvs_flash_init());
+    /*
+     * Initialize the network-interface layer before creating the station interface. Stop on a
+     * setup error.
+     */
     ESP_ERROR_CHECK(esp_netif_init());
+    /*
+     * Start the default event loop that dispatches Wi-Fi/IP/setup notifications. Stop on a setup
+     * error.
+     */
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    /* Group the settings passed to this ESP-IDF driver, service, or protected connection. */
     esp_sntp_config_t time_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
 
     /* Prepare the clock service now, but wait for an IP address before starting it. */
     time_config.start = false;
+    /* Ask SNTP to call our callback after a successful clock synchronization. */
     time_config.sync_cb = time_sync_callback;
 
+    /*
+     * Prepare the SNTP service using these settings; start remains false until an IP arrives.
+     * Stop on a setup error.
+     */
     ESP_ERROR_CHECK(esp_netif_sntp_init(&time_config));
 
     /* Create the group that stores our three ready/setup flags. */
     connection_events = xEventGroupCreate();
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (connection_events == NULL) {
+        /* Check this required setup result; ESP-IDF stops/aborts if it is not ESP_OK. */
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     }
 
+    /* Check for an absent pointer or failed allocation before dereferencing/using it. */
     if (esp_netif_create_default_wifi_sta() == NULL) {
+        /* Check this required setup result; ESP-IDF stops/aborts if it is not ESP_OK. */
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
     }
 
+    /* Group the settings passed to this ESP-IDF driver, service, or protected connection. */
     wifi_init_config_t wifi_config = WIFI_INIT_CONFIG_DEFAULT();
+    /*
+     * Initialize the Wi-Fi driver before provisioning or saved-credential connection starts.
+     * Stop on a setup error.
+     */
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_config));
 
     /* Start the background Wi-Fi retry job and keep its handle so we can wake it later. */
     BaseType_t task_result =
+        /*
+         * Create the retry job with 4096 stack bytes and priority 3; save its handle so event
+         * callbacks can wake it.
+         */
         xTaskCreate(reconnect_task, "wifi_reconnect", 4096, NULL, 3, &reconnect_task_handle);
 
+    /* Check this required setup result; ESP-IDF stops/aborts if it is not ESP_OK. */
     ESP_ERROR_CHECK(task_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 
     /* Tell ESP-IDF to report Wi-Fi, IP-address, and phone-setup events to our handler. */
     ESP_ERROR_CHECK(
         esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, connection_event_handler, NULL));
 
+    /* Check this required setup result; ESP-IDF stops/aborts if it is not ESP_OK. */
     ESP_ERROR_CHECK(
         esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, connection_event_handler, NULL));
 
+    /* Check this required setup result; ESP-IDF stops/aborts if it is not ESP_OK. */
     ESP_ERROR_CHECK(esp_event_handler_register(NETWORK_PROV_EVENT, ESP_EVENT_ANY_ID,
                                                connection_event_handler, NULL));
 
     /* Use Bluetooth for phone setup. Release its Bluetooth memory when setup finishes. */
     network_prov_mgr_config_t provisioning_config = {
+        /* Select BLE as the transport used for receiving Wi-Fi credentials from the phone. */
         .scheme = network_prov_scheme_ble,
+        /* Release the setup Bluetooth memory after provisioning finishes. */
         .scheme_event_handler = NETWORK_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
     };
 
+    /* Prepare the provisioning manager using the selected BLE scheme. Stop on a setup error. */
     ESP_ERROR_CHECK(network_prov_mgr_init(provisioning_config));
 
+    /* Receive whether NVS already holds Wi-Fi credentials; false is the initial default. */
     bool provisioned = false;
+    /*
+     * Ask NVS/provisioning whether Wi-Fi credentials already exist and fill provisioned. Stop on
+     * a setup error.
+     */
     ESP_ERROR_CHECK(network_prov_mgr_is_wifi_provisioned(&provisioned));
 
     /*
@@ -387,15 +470,32 @@ void connectivity_start(void)
      * There is no user command yet for replacing those saved details.
      */
     if (provisioned) {
+        /* Release provisioning-manager resources; saved Wi-Fi credentials remain in NVS. */
         network_prov_mgr_deinit();
+        /*
+         * Use station mode, which joins an existing router rather than creating an access point.
+         * Stop on a setup error.
+         */
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        /*
+         * Start the Wi-Fi driver; its STA_START event wakes the separate reconnect task. Stop on
+         * a setup error.
+         */
         ESP_ERROR_CHECK(esp_wifi_start());
+        /* Print an informational progress/result line with a tag for the serial monitor. */
         ESP_LOGI("WIFI", "Using saved Wi-Fi credentials");
     } else {
+        /* Keep the BLE setup name alive after this startup function returns. */
         static char service_name[24];
+        /* Keep the random phone-setup proof code alive until provisioning has finished. */
         static char setup_code[17];
+        /* Reserve six bytes for this ESP32's station MAC address. */
         uint8_t mac[6];
 
+        /*
+         * Read the station MAC address used in the phone-visible setup name. Stop on a setup
+         * error.
+         */
         ESP_ERROR_CHECK(esp_read_mac(mac, ESP_MAC_WIFI_STA));
 
         /*
@@ -411,12 +511,19 @@ void connectivity_start(void)
         snprintf(setup_code, sizeof(setup_code), "%08lx%08lx", (unsigned long)esp_random(),
                  (unsigned long)esp_random());
 
+        /* Turn on the named shared readiness/setup flag without changing the other flags. */
         xEventGroupSetBits(connection_events, PROVISIONING_BIT);
 
+        /*
+         * Start security-1 BLE provisioning with this device name and random setup proof code.
+         * Stop on a setup error.
+         */
         ESP_ERROR_CHECK(network_prov_mgr_start_provisioning(NETWORK_PROV_SECURITY_1, setup_code,
                                                             service_name, NULL));
 
+        /* Print an informational progress/result line with a tag for the serial monitor. */
         ESP_LOGI("PROVISION", "Device name: %s", service_name);
+        /* Print an informational progress/result line with a tag for the serial monitor. */
         ESP_LOGI("PROVISION", "Private setup code: %s", setup_code);
     }
 }

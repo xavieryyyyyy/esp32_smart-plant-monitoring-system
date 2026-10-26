@@ -1,4 +1,7 @@
 # Ask for Espressif's library that receives Wi-Fi details from the phone over Bluetooth.
+# Declare libraries that the ESP-IDF component manager must resolve.
 dependencies:
+  # Use Espressif's network-provisioning component for BLE phone Wi-Fi setup.
   espressif/network_provisioning:
+    # Request this recorded version so dependency behavior is reproducible.
     version: "1.3.2"

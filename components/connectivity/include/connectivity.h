@@ -4,6 +4,7 @@
  */
 #pragma once
 
+/* Use bool, true, and false for yes/no values. */
 #include <stdbool.h>
 
 /* Set up networking once. Use saved Wi-Fi details, or start Bluetooth phone setup. */
