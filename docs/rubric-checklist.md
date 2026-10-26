@@ -1,4 +1,4 @@
-﻿# Laboratory rubric and evidence checklist
+# Laboratory rubric and evidence checklist
 
 [Documentation guide](README.md) · [Results index](results/README.md) · [Verification plan](test-plan.md) · [Project README](../README.md)
 
@@ -24,7 +24,7 @@ The point values below are copied from the assignment rubric. No predicted grade
 | WhatsApp end-to-end notification | 8 | The selected substitute is [Discord](results/discord-delivery-test.md), with [matching recipient evidence](results/final-discord.png) | Adapted: instructor permission was reported; this is Discord evidence, not a WhatsApp message |
 | Telegram end-to-end notification | 8 | [Matching bot message](results/final-telegram.png), [API integration](results/telegram-delivery-test.md), [shared event](results/four-channel-delivery-test.md) | Recipient delivery evidenced; rate/error/response-edge coverage incomplete |
 | X end-to-end posting | 8 | The selected substitute is [Slack](results/slack-delivery-test.md), with [matching recipient evidence](results/final-slack.png) | Adapted: instructor permission was reported; this is a Slack update, not an X post |
-| Unit/integration tests and reliability evidence | 10 | [Six Unity cases](results/monitoring-unit-tests.md), [fault records](results/README.md), [compiler review](results/compiler-build-check.md), [Cppcheck 2.11 output](results/static-analysis-output.txt) | Partial: raw conversion, formatting, numeric rejection, sequence gap, overflow, endurance, and custom-component analysis remain open |
+| Unit/integration tests and reliability evidence | 10 | [Six Unity cases](results/monitoring-unit-tests.md), [fault records](results/README.md), [compiler review](results/compiler-build-check.md), [Cppcheck 2.11 output](results/static-analysis-output.txt) | Partial: formatting/MIME covered offline; raw conversion, numeric rejection, sequence gap, overflow, endurance, and component analysis remain open |
 | GitHub quality, reproducibility, technical documentation | 8 | [Main README](../README.md), [meaningful history](progress.md), [PDF report](technical-report.pdf), [source](technical-report.md), [rebuild procedure](report-source/README.md), safe configuration template | Artifacts available; platform is unpinned and a separate clean-clone reproduction is not yet evidenced |
 | Live demo, explanation, integrity of results | 5 | Actual assembly and four-recipient evidence; [short demonstration procedure](test-plan.md#demonstration) | Pending: video deferred; face-to-face demonstration has not been marked completed |
 | **Total rubric weight** | **100** | | **Assessment remains with the instructor** |
@@ -47,7 +47,7 @@ The point values below are copied from the assignment rubric. No predicted grade
 
 ## Remaining work most relevant to grading
 
-1. Add meaningful tests for raw ADC conversion and message formatting. Fix the missing measurement timestamp in the failed-DHT branch before claiming complete payload fields.
+1. Add raw ADC conversion tests and verify the new PhST/native layouts on actual recipients. The failed-DHT timestamp is fixed and formatting/MIME are covered by [offline tests](results/notification-formatting-test.md).
 2. Demonstrate numeric-validation rejection and additional failure paths without substituting normal-operation logs for those tests.
 3. Extend reliability evidence for queue pressure, stack margins, sequence gaps, and longer connectivity interruptions in a controlled network. Do not disrupt the shared boarding-house router.
 4. Establish analysis coverage of custom components and perform a clean-clone reproduction using the recorded environment.

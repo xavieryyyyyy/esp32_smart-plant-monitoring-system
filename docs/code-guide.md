@@ -30,7 +30,7 @@ GPIO1 / ADC1 channel 0       GPIO2 / DHT11
                     notification_queue (4)
                           | copied event: reading + percent + state
                     notification_task
-                          | format one message from that snapshot
+                          | format each layout from that same snapshot
             Slack -> Discord -> Telegram -> Gmail
                           | Wi-Fi + TLS to external services
                     recipient applications
@@ -53,7 +53,8 @@ Paths below are relative to the repository root. Each folder's `include` directo
 | `components/monitoring/monitoring.c` | Converts the valid ADC index, classifies, confirms transitions, checks cooldown | Pure decision logic; does not read pins, send requests, or log delivery |
 | `components/connectivity/include/connectivity.h` | Exposes startup, Wi-Fi readiness, and time readiness | Used by main, sensor timestamp capture, and all senders |
 | `components/connectivity/connectivity.c` | BLE onboarding, saved credentials, Wi-Fi events, reconnect task, SNTP | Calls ESP-IDF networking/NVS and Espressif provisioning; maintains event-group flags |
-| `components/notifications/include/notifications.h` | Declares the four synchronous sender functions | Included by `app_tasks.c` and sender implementations |
+| `components/notifications/include/notifications.h` | Defines the typed notification snapshot and four synchronous sender functions | Included by `app_tasks.c` and sender implementations |
+| `components/notifications/notification_format.c/.h` | Converts a captured UTC copy to PhST and builds text, native JSON layouts, and Gmail HTML | Used by all four senders and offline tests; no secrets or network calls |
 | `components/notifications/notifications.c` | Slack HTTPS JSON sender, bounded retries, rate-limit state | Called first by the notification task; uses connectivity and ESP HTTP client |
 | `components/notifications/discord.c` | Discord webhook JSON with mentions disabled and `wait=true` | Called second; checks HTTP acceptance; one application-level attempt |
 | `components/notifications/telegram.c` | Telegram `sendMessage`, bounded response collection, JSON `ok` check | Called third; bot token/chat ID come from private configuration |
@@ -61,6 +62,7 @@ Paths below are relative to the repository root. Each folder's `include` directo
 | `components/notifications/config.example.h` | Public placeholder configuration template | Copy its macro names to the ignored local header; do not put credentials here |
 | `components/notifications/config.local.h` | Private endpoint, token, chat, and email settings | Included locally by senders; ignored by Git; never publish it |
 | `test/test_monitoring/test_main.c` | Six Unity cases for thresholds, persistence/reset, cooldown | Uses the monitoring component; uploads test firmware, not production tasks |
+| `scripts/test_notification_format.py`; `tests/host/` | Host tests for actual formatting and copied Gmail source using dummy configuration | Uses installed GCC and real cJSON; does not upload or send |
 | `scripts/refresh_component_cmake.py` | PlatformIO pre-build hook for changed component declarations | Touches the root CMake file when needed to trigger reconfiguration; does not execute on ESP32 |
 
 ## Build and configuration files
@@ -88,7 +90,7 @@ An include declaration alone does not compile another C file. A new sender needs
 |---|---|---|
 | Sensor task | ADC handle and acquisition sequence | A full sample is copied into `reading_queue` |
 | Monitoring task | Candidate, confirmed state, count, DRY/WET cooldown timestamps | An eligible transition is copied into `notification_queue` |
-| Notification task | Event snapshot, formatted message, single-caller sender state | Calls each sender synchronously; each sender releases its temporary resources |
+| Notification task | Event snapshot, formatted message, single-caller sender state | Passes the same typed snapshot to synchronous senders; each releases its temporary resources |
 | Connectivity component | Wi-Fi/time/provisioning flags, reconnect signaling | Readiness queries and ESP-IDF events; no shared measurement pointer |
 
 Both queue sends use zero wait. Full queues drop new items and log the outcome. Sequence numbers allow the monitor to detect dropped readings. The notification queue has no delivery acknowledgement or persistent replay. Cooldown is recorded after successful enqueue, before external delivery; a failed delivery therefore still consumes the current cooldown interval.
@@ -98,10 +100,10 @@ Slack's static retry/rate state assumes the current single notification caller. 
 ## Two clocks with different purposes
 
 - `sampled_at_us`: monotonic microseconds from `esp_timer_get_time()`, captured at acquisition start. The monitor uses it to reject negative age or age greater than ten seconds, independently of SNTP.
-- `measured_at`: UTC wall-clock time captured at acquisition start only when synchronization is ready. The notification formats this stored value rather than substituting its later dispatch time.
+- `measured_at`: UTC wall-clock time captured at acquisition start only when synchronization is ready. The formatter displays a PhST copy of this value rather than substituting dispatch time. Stored Unix time and the global timezone remain unchanged.
 - Cooldown also uses monotonic time. It is separate for DRY and WET, resets on reboot, and only filters confirmed state transitions; it does not schedule periodic reminders.
 
-The healthy-DHT message has a `Measured` line or a clock-unavailable label. The current failed-DHT formatting branch omits that line. The freshness check applies before monitoring, not again before every network dispatch; old notification events can still wait behind earlier requests. These are recorded limitations, not behavior fixed by the comments.
+All layouts keep the `Measured` field, including unavailable-clock and failed-DHT paths. The old failed-DHT timestamp omission is fixed. The freshness check still applies before monitoring, not again before each dispatch; notifications can wait behind earlier requests.
 
 ## What happens on an error?
 
@@ -134,3 +136,12 @@ The healthy-DHT message has a `Measured` line or a clock-unavailable label. The 
 | `Cooldown suppressed` | The repeated DRY/WET transition is inside its own cooldown interval |
 
 For the final check, compare the same device, measurement timestamp, state, and values across all four recipients. The recorded example is linked in the [four-channel delivery test](results/four-channel-delivery-test.md). The video remains deferred; the planned face-to-face demonstration has not been recorded as completed.
+
+
+## Native message layouts and Philippine time
+
+`notification_task` maps its copied event to `notification_message_t`. Its state pointer stays valid until all four synchronous calls return. `notification_format.c` checks the fields and supplies each sender's payload: Slack sections plus fallback text, Discord embed fields, Telegram HTML text, or Gmail HTML/plain alternatives. This keeps format rules out of the sensor and monitoring components.
+
+The time helper adds 28,800 seconds to a temporary copy and uses `gmtime_r` to read its calendar fields. It neither sets `TZ` nor changes `measured_at`. Twelve-hour midnight/noon and date rollover are covered by offline tests. Gmail's `Date` header is still submission time in UTC; the message body is the captured measurement in PhST.
+
+Gmail sends multipart/related containing a multipart/alternative (plain text and HTML) and an inline PNG. The inner and outer boundaries end before one SMTP DATA terminator. The inline image comes from the included Lucide-derived asset, not a remote URL. See the [formatting test record](results/notification-formatting-test.md) for the precise offline/live evidence boundary.

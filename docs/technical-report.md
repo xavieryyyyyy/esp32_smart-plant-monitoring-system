@@ -19,7 +19,7 @@
 
 This project implemented an ESP32-S3 monitoring and notification prototype using C, ESP-IDF, and FreeRTOS. A potentiometer provided repeatable simulated moisture input, while a DHT11 measured air temperature and relative humidity. Separate acquisition, monitoring, notification, and reconnection tasks coordinated through queues, event-group flags, and task notifications. Readings were acquired every five seconds; three successive valid samples in the same classification confirmed a state. DRY and WET notifications used independent fifteen-minute cooldowns. The device received Wi-Fi credentials through BLE provisioning, synchronized its clock, and initiated verified TLS requests to Gmail, Telegram, Discord, and Slack.
 
-The final delivery experiment showed one NORMAL event, measured at 2026-10-26 05:23:26 UTC, in all four recipient applications with identical values: 45% simulated moisture, 30.0 C, and 72.0% relative humidity. Sequential dispatch completed in 14.680 seconds from state confirmation to the final Gmail submission-accepted log. Six monitoring unit tests passed. Controlled experiments also demonstrated stale-sample rejection, duplicate-alert suppression, bounded Slack retry behavior, and reconnection after a device-originated Wi-Fi disconnect. The results establish the observed prototype behavior, not soil calibration, measurement accuracy, guaranteed delivery, or full reliability under prolonged faults. Remaining limitations include intermittent DHT11 timeouts, incomplete numeric and formatting tests, absent retry policies for three services, and an unfinished final demonstration.
+The final delivery experiment showed one NORMAL event, measured at 2026-10-26 05:23:26 UTC, in all four recipient applications with identical values: 45% simulated moisture, 30.0 C, and 72.0% relative humidity. Sequential dispatch completed in 14.680 seconds from state confirmation to the final Gmail submission-accepted log. Six monitoring unit tests passed. Controlled experiments also demonstrated stale-sample rejection, duplicate-alert suppression, bounded Slack retry behavior, and reconnection after a device-originated Wi-Fi disconnect. The results establish the observed prototype behavior, not soil calibration, measurement accuracy, guaranteed delivery, or full reliability under prolonged faults. Remaining limitations include intermittent DHT11 timeouts, incomplete numeric and live new-layout tests, absent retry policies for three services, and an unfinished final demonstration.
 
 **Keywords:** ESP32-S3; ESP-IDF; FreeRTOS; BLE provisioning; sensor validation; TLS; event-driven notification.
 
@@ -190,9 +190,7 @@ When a reading queue overflows, the next received sequence gap can break confirm
 
 ### 4.5 Reading and maintaining the source
 
-The entry point, task coordinator, component interfaces, and build declarations have different responsibilities. `src/main.c` starts the tasks and connectivity. `src/app_tasks.c` moves copied samples through monitoring into a notification snapshot. The sensor component owns hardware access, monitoring owns decision logic, connectivity owns network/time state, and the four notification implementations own protocol requests. Appendix C maps the individual files and their connections. `docs/code-guide.md` provides the longer walkthrough and serial-log explanation.
-
-Explanatory comments describe these boundaries, acquisition versus dispatch time, queue ownership, and failure outcomes. They preserve the existing logic, including the failed-DHT timestamp omission and cooldown accounting at enqueue. Comments are not evidence that an untested fault path passed.
+Appendix C maps the source files, interfaces, build declarations, and error boundaries. The longer walkthrough is in docs/code-guide.md. The shared notification formatter adds PhST/native presentation while preserving sensing, monitoring, and queue-based cooldown behavior.
 
 ## 5. Network provisioning and transport security
 
@@ -228,17 +226,17 @@ DRY and WET each have a default fifteen-minute cooldown stored in `monitoring_t`
 
 ### 6.2 Payload and dispatch
 
-A healthy-DHT message contains plant ID, measurement UTC, reason, state, simulated moisture, temperature in Celsius, and relative humidity. Values are captured with the event rather than replaced by current readings during delivery. The failed-DHT branch labels environmental values unavailable but currently omits the measurement timestamp. This is a payload-completeness gap relative to the brief.
+Each sender receives one captured notification_message_t snapshot. The formatter shows state, simulated moisture, environmental readings, reason, and measured time. It converts a copy of UTC Unix time to twelve-hour PhST (UTC+08:00), leaving the captured timestamp and process timezone unchanged. Failed-DHT and unknown-clock paths retain explicit availability labels and the measured-time field, correcting the earlier omission.
 
-The formatter uses a 384-byte buffer and rejects formatting errors/truncation. Senders run sequentially: Slack, Discord, Telegram, then Gmail. Failure of one is logged and does not skip the later senders. Events may wait in the queue and become older than the latest local readings; there is no dispatch-age guard.
+Checked limits are 768 bytes for plain/Telegram text and 6144 for HTML. Gmail uses HTML/plain alternatives and an inline PNG; Telegram uses HTML parsing; Slack uses sections plus fallback text; Discord uses an embed with mentions disabled. Inter is a font preference with client fallbacks. Sequential order remains Slack, Discord, Telegram, Gmail; events have no dispatch-age guard or durable replay.
 
 **Table 5. Selected services, transport/authentication, and acceptance checks.**
 
 | Service | Transport/authentication | Acceptance criterion |
 |---|---|---|
-| Slack | HTTPS JSON `text`; private incoming-webhook URL | HTTP 200; response body not independently checked for `ok` |
-| Discord | HTTPS webhook; `content`, disabled mention parsing, `wait=true` | HTTP 200 |
-| Telegram | HTTPS `sendMessage`; bot token and chat ID | HTTP 200 plus JSON `ok: true`; response overflow detected |
+| Slack | HTTPS native blocks and fallback text; private webhook URL | HTTP 200; response body not independently checked for `ok` |
+| Discord | HTTPS embed; disabled mention parsing; `wait=true` | HTTP 200 |
+| Telegram | HTTPS `sendMessage`; HTML parsing; bot token and chat ID | HTTP 200 plus JSON `ok: true`; response overflow detected |
 | Gmail | SMTP/TLS at `smtp.gmail.com:465`; app password via AUTH LOGIN | Expected codes, including authentication 235 and post-DATA 250 |
 
 The selected APIs are direct device integrations, not a hosted relay [6–9]. Provider account requirements and future pricing remain outside the firmware's control. No claim of unlimited free access is made.
@@ -333,7 +331,7 @@ All six current Unity cases passed. The build/upload/test run took 123.671 secon
 | `test_dry_and_wet_have_independent_cooldowns` | Passed | Separate condition timestamps |
 | `test_cooldown_does_not_block_recovery` | Passed | NORMAL eligibility during cooldown |
 
-The earlier three-test baseline is retained in the repository as historical evidence. Raw conversion, message formatting, numeric rejection, physical ADC errors, sequence gaps, and queue pressure are not covered by the six-case suite.
+The earlier three-test baseline is retained as historical evidence. Raw conversion, formatting, numeric rejection, physical ADC errors, sequence gaps, and queue pressure are outside the six-case monitoring suite. Presentation now has separate host coverage described in Section 8.5.
 
 <!-- pagebreak -->
 
@@ -363,6 +361,14 @@ Cppcheck passed with zero high, zero medium, and two low findings after a shadow
 The documentation-review run verified Cppcheck 2.11 and reproduced the result: zero high, zero medium, and two low findings. The tool version and command output are retained in `docs/results/static-analysis-output.txt`. PlatformIO identifies scope `src`; custom-component coverage remains unestablished. Recording the version closes the earlier tool-identification gap, but does not extend the analyzed scope.
 
 <!-- pagebreak -->
+
+### 8.5 Native layouts, PhST, and offline email checks
+
+Seventeen C formatting cases passed using GCC 14.2.0 and real cJSON. They cover captured PhST conversion, year rollover, twelve-hour midnight/noon, unknown-clock and failed-DHT labels, bounds/truncation, native payload structure, state colors, and JSON allocation-failure cleanup. The same suite passed under the default host timezone and explicit UTC0/PST8PDT settings. This is separate from the six ESP32 monitoring cases.
+
+Three complete offline Gmail sessions used the actual sender source copied beside dummy configuration, fake SMTP replies, and forced seventeen-byte partial writes. Python's MIME parser verified plain/HTML alternatives, the inline PNG, captured or unavailable values, Base64 line limits, and one DATA terminator. A fourth failed-write scenario checked connection cleanup. A review identified the required multipart/related root type parameter; an added assertion failed before the parameter was corrected and passed afterward.
+
+The generated email HTML was inspected in desktop and phone browser widths without horizontal overflow. Firmware compilation succeeded; Cppcheck again reported zero high, zero medium, and the same two low findings in src. No provider was contacted by these tests. New-layout hardware receipt, exact mail/chat-client rendering, and ESP32 stack margins remain unverified. Earlier UTC recipient screenshots remain historical delivery evidence, not proof of this presentation update.
 
 ## 9. Discussion
 
@@ -402,13 +408,13 @@ The documentation checkpoint is `67f1157`, which records the matching-event expe
 
 | Case | Evidence | Assessment |
 |---|---|---|
-| T1 Startup and sensing | Periodic ADC/DHT readings, units, synchronized measurement times | Observed with intermittent DHT failures; failed-DHT messages omit time |
+| T1 Startup and sensing | Periodic ADC/DHT readings, units, synchronized measurement times | Observed with intermittent DHT failures; failed-DHT/time formatting fixed and tested offline |
 | T2 Calibration and dry/wet states | Potentiometer mapping and three-state demonstration | Adapted; real soil calibration absent |
 | T3 Invalid sensor reading | DHT errors/disconnection; wrappers; injected stale sample | Partial; numeric branch and physical ADC fault coverage missing |
 | T4 Notification policy | Real confirmed transitions, cooldown experiment, logic tests | Observed within stated queue-based/reboot limits |
 | T5 Connectivity loss | Controlled device disconnect and IP reacquisition | Partial; prolonged/router outage and exact sensing continuity unproven |
 | T6 Service error/rate limit | Injected Slack 503/429 and attempt bounds | Partial; header/parser and other-channel handling incomplete |
-| T7 Four-channel delivery | Four matching recipient captures and serial acceptance | Passed for Gmail, Telegram, Discord, Slack; documented channel adaptation |
+| T7 Four-channel delivery | Four matching recipient captures and serial acceptance | Historical four-channel receipt; new PhST/native layouts await live verification |
 | T8 Restart and recovery | Saved credentials reused; startup observations | Observed; systematic repeated-cycle/endurance test pending |
 
 The original brief grades Gmail, WhatsApp, Telegram, and X independently. This report does not rename a Discord message as WhatsApp or a Slack message as an X post. The reported instructor permission should accompany the submission explanation for the adapted channel set.
@@ -417,8 +423,8 @@ The original brief grades Gmail, WhatsApp, Telegram, and X independently. This r
 
 - Obtain actual dry/wet soil reference measurements before replacing simulated moisture claims with soil calibration.
 - Investigate intermittent DHT timing and validate temperature plausibility/measurement accuracy.
-- Preserve measurement time in the failed-DHT message branch and distinguish initial, alert, and recovery reasons.
-- Add tests for raw conversion, formatting/truncation, invalid-number rejection, sequence gaps, future/exact-boundary timestamps, and queue behavior.
+- Verify new PhST/native layouts on actual recipients and distinguish initial, alert, and recovery reasons.
+- Add raw conversion, sensor-layer invalid-number, sequence-gap, freshness-boundary, and queue tests; retain the new offline formatting/MIME checks.
 - Measure task stack margins and endurance under concurrent communication failures.
 - Complete retry/rate-limit/error policies for Discord, Telegram, and Gmail; exercise real Slack header parsing and ambiguous transport failures.
 - Add a controlled reprovisioning mechanism and test prolonged connectivity loss.
@@ -431,6 +437,8 @@ The original brief grades Gmail, WhatsApp, Telegram, and X independently. This r
 The prototype implemented modular ESP-IDF firmware that acquires inputs, confirms simulated moisture states, coordinates concurrent tasks, provisions Wi-Fi through BLE, and sends notifications using verified TLS connections. The strongest delivery result is one event visibly received through all four selected channels with the same measurement timestamp and values. Six monitoring tests passed, and controlled experiments established the specific cooldown, stale-input, retry, and reconnection behaviors described in the results.
 
 These results demonstrate an embedded monitoring and notification workflow. They do not establish actual soil moisture calibration, sensor accuracy, guaranteed eventual delivery, complete service-error handling, or prolonged reliability. The potentiometer/DHT11 and Discord/Slack substitutions remain explicit. The system is suitable for demonstrating the recorded engineering behavior; full acceptance depends on the instructor's adaptation agreement and completion of the remaining verification and demonstration work.
+
+<!-- pagebreak -->
 
 ## References
 
@@ -552,7 +560,7 @@ The report and README document existing evidence. Their presence does not remove
 
 ### C.1 Runtime path
 
-ESP-IDF invokes `app_main()` in `src/main.c`. Application queues/tasks are created before connectivity startup. Acquisition can therefore run while Wi-Fi and time are not ready. The sensor task calls the sensors interface, sends a copied `sensor_reading_t` through `reading_queue`, and wakes on a five-second schedule. Monitoring checks sequence and age, calls the monitoring interface, and queues an eligible changed-state snapshot. The notification task formats one message from that snapshot and calls Slack, Discord, Telegram, and Gmail in order. Each service result is logged independently.
+ESP-IDF invokes `app_main()` in `src/main.c`. Application queues/tasks are created before connectivity startup. Acquisition can therefore run while Wi-Fi and time are not ready. The sensor task calls the sensors interface, sends a copied `sensor_reading_t` through `reading_queue`, and wakes on a five-second schedule. Monitoring checks sequence and age, calls the monitoring interface, and queues an eligible changed-state snapshot. The notification task maps that snapshot to notification_message_t and calls Slack, Discord, Telegram, and Gmail in order; the shared formatter prepares each native layout. Each service result is logged independently.
 
 Component paths in Table 13 are relative to the components directory. Paths beginning `src/`, `test/`, or `scripts/` are relative to the repository root.
 
@@ -561,18 +569,20 @@ Component paths in Table 13 are relative to the components directory. Paths begi
 | File or group | Responsibility and connection |
 |---|---|
 | `src/main.c`; `src/app_tasks.h` | Application entry and task-start interface; connects startup to the coordinator and connectivity |
-| `src/app_tasks.c` | Three application tasks, two queues, freshness gate, transition eligibility, formatting, sequential dispatch |
+| `src/app_tasks.c` | Three tasks, two queues, freshness gate, transition eligibility, captured message data and sequential dispatch |
 | `sensors/include/sensors.h` | Public reading structure and read/init declarations; used by the coordinator |
 | `sensors/sensors.c` | ADC1 channel 0 / GPIO1 and DHT11 / GPIO2; validates reads before publishing outputs |
 | `monitoring/include/monitoring.h`; `monitoring.c` in that component | Confirmation/cooldown state and pure decision logic; called by monitoring task and Unity tests |
 | `connectivity/include/connectivity.h`; `connectivity.c` in that component | Readiness interface; BLE provisioning, Wi-Fi events/reconnect task, SNTP, event flags |
-| `notifications/include/notifications.h` | Four synchronous sender declarations; coordinator supplies a borrowed message |
+| `notifications/include/notifications.h` | Typed snapshot and four synchronous sender declarations; borrowed state stays valid until calls return |
+| `notifications/notification_format.c/.h` | Shared native layouts, PhST conversion, complete fallbacks, Gmail HTML and inline mark |
 | `notifications/notifications.c` | Slack JSON HTTPS sender, bounded retries, Retry-After and shared deadline state |
 | `notifications/discord.c` | Discord HTTPS webhook; disabled mentions and response-wait option |
 | `notifications/telegram.c` | Telegram JSON request and bounded JSON response collection; checks API success |
 | `notifications/gmail.c` | SMTP/TLS session, authentication, MIME body, reply validation and cleanup |
 | `notifications/config.example.h`; local counterpart | Public placeholders versus ignored private values; only the local header contains real credentials |
 | `test/test_monitoring/test_main.c` | Six Unity logic tests; test firmware must be replaced by production firmware after testing |
+| `scripts/test_notification_format.py`; `tests/host/` | Offline actual-formatter and copied-SMTP tests with real cJSON and dummy settings |
 | `scripts/refresh_component_cmake.py` | Host pre-build hook that prompts CMake reconfiguration when component declarations change |
 
 ### C.2 Build declarations
@@ -583,6 +593,6 @@ The three `idf_component.yml` manifests declare managed DHT, provisioning, and c
 
 ### C.3 Timing and error boundaries
 
-Monotonic `sampled_at_us` supports age checks without requiring SNTP; optional `measured_at` supplies captured UTC for human-readable messages. Neither should be substituted for the other. A DHT failure can coexist with a valid ADC result. A stale sample is discarded before processing, whereas a delayed notification is not currently checked again before dispatch. Successful enqueue records cooldown before delivery, and sender acceptance does not establish that a person read the message. These boundaries explain both the source comments and the documented reliability limits.
+Monotonic `sampled_at_us` supports age checks without requiring SNTP; optional `measured_at` stores captured UTC Unix time; the formatter displays a PhST copy for messages. Neither should be substituted for the other. A DHT failure can coexist with a valid ADC result. A stale sample is discarded before processing, whereas a delayed notification is not currently checked again before dispatch. Successful enqueue records cooldown before delivery, and sender acceptance does not establish that a person read the message. These boundaries explain both the source comments and the documented reliability limits.
 
 The Markdown documentation guide, results index, rubric checklist, and verification plan provide navigation beyond this report. They distinguish the original grading requirements from adaptations, recorded observations, and checks still to be performed. The video is deferred and the planned face-to-face demonstration remains a future activity.

@@ -223,12 +223,18 @@ The [matching four-channel test](results/four-channel-delivery-test.md) records 
 
 A complete editable [report](technical-report.md) and rendered [PDF](technical-report.pdf) were prepared for Yestin John Paraguya, Kenneth Restauro, and Regine Bermudo, BCA152 Microcontrollers — B186. The report includes methods, observed results, numbered figures/tables, requirement coverage, limitations, and references. The builder accepted the report presentation. Final team/submission review and the demonstration remain; the video was deferred to a later session.
 
+## Native notification layout and Philippine time
+
+The approved presentation update adds a shared typed event and network-free formatter. Messages display captured time in PhST, with bold labels/native layouts and complete unavailable-data paths. Gmail has HTML/plain alternatives and an inline plant mark. The old missing failed-DHT timestamp is corrected. Monitoring, sensing, task setup and Slack retry policy were preserved.
+
+The [offline record](results/notification-formatting-test.md) separates 17 formatting cases, host timezone checks, parsed SMTP/MIME simulations, and successful firmware compilation from pending real receipt. The earlier UTC screenshots are retained unchanged.
+
 ## Remaining work
 
 - Review the README and technical report before submission; complete the
   demonstration video or instructor-directed live demonstration.
 - Test rejection of out-of-range and nonfinite sensor values.
-- Extend freshness-boundary/notification-age and message-formatting tests.
+- Extend freshness-boundary/notification-age coverage and capture new-layout recipient rendering.
 - Test skipped-sample handling, queue overflow, and task stack margins.
 - Extend static analysis beyond `src`; the documentation-review run verified Cppcheck 2.11 with 0 high, 0 medium, and 2 low findings.
 - Investigate intermittent DHT11 timeouts.

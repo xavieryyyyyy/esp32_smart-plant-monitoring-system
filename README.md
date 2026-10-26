@@ -36,8 +36,8 @@ No external application server, MQTT broker, cloud database, custom mobile app, 
 | Repeated-alert cooldown | 15 minutes independently for DRY and WET |
 | Network setup | Phone-to-ESP32 BLE provisioning; credentials retained in NVS |
 | Dispatch order | Slack, Discord, Telegram, then Gmail, sequentially |
-| Time display | UTC measurement time captured at acquisition start |
-| Quality checks | Six monitoring tests reported passing; clean build; Cppcheck review |
+| Time display | Captured UTC measurement shown in twelve-hour PhST (UTC+08:00) |
+| Quality checks | Six monitoring cases; offline layout/MIME checks; build and Cppcheck records |
 
 The assembly photograph, editable technical report, and rendered PDF are included. The demonstration video is deferred, and several fault-path checks remain open. The [rubric checklist](docs/rubric-checklist.md) maps evidence and gaps to the original grading categories; it does not predict a grade or claim complete lab acceptance.
 
@@ -307,23 +307,35 @@ DRY and WET each have a 15-minute cooldown; NORMAL recovery remains eligible. Th
 
 Cooldown starts on successful **enqueue**, not completed recipient delivery, and resets on reboot. Holding a state does not produce periodic reminders. Suppressed transitions are not automatically retried when cooldown expires. Failed events are not stored durably or replayed on reconnect.
 
-### Message contents
+### Message contents and layout
 
-The healthy-DHT formatting branch uses this structure; the values illustrate the format rather than a new test:
+The notification task passes one `notification_message_t` snapshot to all four senders. The shared [formatter](components/notifications/notification_format.c) chooses each service's native layout, keeping the same captured values. Example display values, not a new delivery observation:
 
 ```text
 Plant-01
-Measured: 2026-10-26 00:15:54 UTC
-Reason: confirmed moisture state
+Condition update
 State: DRY
 Simulated moisture: 26%
-Temperature: 28.0 C
+Temperature: 28.0 °C
 Humidity: 77.0%
+Measured: 26 October 2026, 8:15:54 AM PhST
+UTC+08:00
+Reason: Confirmed moisture state
+Moisture is simulated using a potentiometer.
 ```
 
-Measurement UTC is captured at acquisition start. If time was not synchronized then, the healthy-DHT branch labels it unavailable. The current failed-DHT branch reports `Temperature/humidity: unavailable` but omits the `Measured` line; this is a message-completeness gap.
+| Service | Presentation |
+|---|---|
+| Gmail | Forest header and status badge, prominent simulated percentage, supporting readings, measured time and reason; HTML plus a complete plain-text alternative and an inline plant mark |
+| Telegram | Bold labels, grouped readings and captured PhST time, using HTML parse mode |
+| Slack | Native header/sections and two-column fields, with complete notification/screen-reader fallback text |
+| Discord | Native colored embed, paired reading fields, full-width time/reason, qualification footer, mentions disabled |
 
-Initial, alert, and recovery messages currently share the generic reason string. Separate reason labels and periodic summaries are not implemented. Formatting uses a 384-byte buffer; truncation/errors cause a logged drop.
+The [approved design preview](docs/assets/notifications/design-preview.png) is illustrative. Inter is the preferred email font with Arial/system fallbacks; native chat fonts and exact spacing remain client-controlled. The firmware does not fetch remote fonts or images for the email mark.
+
+Measurement Unix time is captured at acquisition start and kept unchanged. A copy is converted to PhST for display without changing the process timezone or monotonic cooldown/freshness timers. Clock-not-synchronized and DHT-unavailable paths retain explicit labels and the `Measured` field. The old failed-DHT timestamp omission is fixed. The serial clock-synchronization log remains UTC.
+
+Plain/Telegram text has a 768-byte limit and HTML a 6144-byte limit. Formatting rejects invalid input and truncation. Initial, alert, and recovery messages still share the generic reason; no periodic summaries are added. See the [offline formatting and MIME test record](docs/results/notification-formatting-test.md). New layout receipt on all four services is pending hardware testing; the gallery below records the earlier UTC/plain-text checkpoint.
 
 <a id="wifi"></a>
 ## <img src="docs/assets/readme/icons/Wifi.svg" width="24" height="24" alt=""> Wi-Fi, BLE provisioning, and time
@@ -373,7 +385,7 @@ Requests originate on the ESP32; no paid relay is configured. Provider eligibili
 4. Sender/recipient may be the same account for testing; they remain separate fields.
 5. Trigger an event and compare the actual inbox message with its device log.
 
-The sender uses immediate TLS at `smtp.gmail.com:465`, then `EHLO`, `AUTH LOGIN`, `MAIL FROM`, `RCPT TO`, `DATA`, and `QUIT`. MIME body transfer is Base64; Base64 is encoding, while TLS encrypts the connection. The email `Date` header is submission time; the message body carries acquisition time when the healthy-DHT branch is used.
+The sender uses immediate TLS at `smtp.gmail.com:465`, then `EHLO`, `AUTH LOGIN`, `MAIL FROM`, `RCPT TO`, `DATA`, and `QUIT`. MIME body transfer is Base64; Base64 is encoding, while TLS encrypts the connection. The email `Date` header is submission time; the message body carries captured acquisition time displayed in PhST, including when the DHT is unavailable. The MIME message contains plain-text and HTML alternatives plus an inline PNG; Base64 lines stay within 76 characters.
 
 Codes `235` and post-DATA `250` were observed, followed by inbox delivery. SMTP acceptance alone is not inbox proof. Account password changes may revoke app passwords. OAuth refresh, Gmail retries, and delivery receipts are not implemented.
 
@@ -390,7 +402,7 @@ Codes `235` and post-DATA `250` were observed, followed by inbox delivery. SMTP 
 
 See the official [bot guide](https://core.telegram.org/bots/features#botfather) and [Bot API](https://core.telegram.org/bots/api).
 
-The sender posts JSON `chat_id` and `text` to `sendMessage`. It bounds the response buffer to 4096 bytes, detects overflow, parses JSON, and requires `ok: true`. The token is in the API URL and must not appear in diagnostics. This firmware does not implement inbound commands or replies; `/start` establishes the recipient conversation.
+The sender posts JSON `chat_id`, formatted `text`, and `parse_mode: HTML` to `sendMessage`. It bounds the response buffer to 4096 bytes, detects overflow, parses JSON, and requires `ok: true`. The token is in the API URL and must not appear in diagnostics. This firmware does not implement inbound commands or replies; `/start` establishes the recipient conversation.
 
 </details>
 
@@ -401,7 +413,7 @@ The sender posts JSON `chat_id` and `text` to `sendMessage`. It bounds the respo
 2. Set `DISCORD_WEBHOOK_URL` to the plain `https://discord.com/api/webhooks/...` URL, without query parameters or a fragment.
 3. The firmware appends `?wait=true`; trigger an event and check its channel.
 
-JSON uses `content` and disables automatic mention parsing with `allowed_mentions`. No separately hosted bot is needed. HTTPS uses a 10-second configured client timeout and disables automatic redirects. See [Discord's webhook reference](https://docs.discord.com/developers/resources/webhook).
+JSON uses a native `embeds` payload and disables automatic mention parsing with `allowed_mentions`. No separately hosted bot is needed. HTTPS uses a 10-second configured client timeout and disables automatic redirects. See [Discord's webhook reference](https://docs.discord.com/developers/resources/webhook).
 
 </details>
 
@@ -415,7 +427,7 @@ JSON uses `content` and disables automatic mention parsing with `allowed_mention
 
 Only the webhook is used: Slack CLI, Bolt, Socket Mode, bot events, and bot tokens are unnecessary for this path. See [Slack's incoming-webhook guide](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/).
 
-The sender posts JSON `text` with up to three attempts. Selected temporary errors use roughly two- then four-second waits. A `429` uses a numeric `Retry-After`; a missing/invalid value pauses Slack until restart. A required wait above the 30-second waiting budget abandons that event while retaining the deadline. This is not a total transaction deadline.
+The sender posts native `blocks` plus complete fallback `text`, with up to three attempts. Selected temporary errors use roughly two- then four-second waits. A `429` uses a numeric `Retry-After`; a missing/invalid value pauses Slack until restart. A required wait above the 30-second waiting budget abandons that event while retaining the deadline. This is not a total transaction deadline.
 
 Controlled 503/429 injections tested attempt limits and delays, not real header parsing. Ambiguous transport retries may duplicate delivery. HTTP 200 is checked, but the body is not independently required to equal `ok`.
 
@@ -454,7 +466,7 @@ These records distinguish hardware observations, controlled fault injection, and
 | T4 Policy | Real confirmed alert and cooldown suppression | [DRY → NORMAL → DRY](docs/results/notification-cooldown-test.md); six tests passed with screenshot evidence | Observed; queue-based cooldown limits apply |
 | T5 Wi-Fi loss | Detect loss, keep monitoring, reconnect | [Device-originated disconnect](docs/results/wifi-reconnection-test.md), about 4.83-second recovery | Partial; router outage/precise sensing continuity unproven |
 | T6 Service errors | Log rejection and bound retries | [Slack 503/429 injection](docs/results/slack-retry-test.md) | Partial; other channels and parser cases pending |
-| T7 Four channels | Matching real recipient outputs | [Same-event screenshots and serial results](docs/results/four-channel-delivery-test.md): NORMAL, 45%, 30 C, 72% RH, 05:23:26 UTC | Passed for the four adapted channels |
+| T7 Four channels | Matching real recipient outputs | [Same-event screenshots and serial results](docs/results/four-channel-delivery-test.md): NORMAL, 45%, 30 C, 72% RH, 05:23:26 UTC | Passed for earlier checkpoint; new layout receipt pending |
 | T8 Restart/recovery | Restart without hanging or disclosure | Saved Wi-Fi reused; [development observations](docs/progress.md) | Observed; endurance/repeated-cycle testing pending |
 
 ### Unit tests
@@ -474,7 +486,7 @@ The current [Unity suite](test/test_monitoring/test_main.c) contains six cases:
 
 The expanded run passed all six tests in 123.671 seconds, including build and upload. The [updated test record](docs/results/monitoring-unit-tests.md) includes the [six-test screenshot](docs/results/monitoring-six-tests.png), the original three-test baseline, and observations after restoring the normal application. The older baseline predates cooldown implementation.
 
-Cooldown tests use synthetic time, not a 15-minute hardware wait. Tests do not yet cover raw conversion, message formatting, numeric rejection, physical ADC error, sequence gaps, or overflow. Reset is exercised directly, not through a physical ADC fault.
+Cooldown tests use synthetic time, not a 15-minute hardware wait. The six-case monitoring suite does not cover raw conversion, message formatting, numeric rejection, physical ADC error, sequence gaps, or overflow. Formatting now has a separate offline suite described below. Reset is exercised directly, not through a physical ADC fault.
 
 **Tests upload a test application. Restore production firmware afterward:**
 
@@ -482,6 +494,14 @@ Cooldown tests use synthetic time, not a 15-minute hardware wait. Tests do not y
 pio run -t upload
 pio device monitor
 ```
+
+### Offline layout, PhST, and email tests
+
+```powershell
+python scripts/test_notification_format.py
+```
+
+This uses an installed GCC-compatible compiler and managed cJSON source. It never reads the private header, uploads firmware, or contacts a service. Pass `--cc "C:/path/to/gcc.exe"` if needed. Seventeen formatting cases passed under the default host timezone and explicit `UTC0`/`PST8PDT` settings. On Windows, three simulated full Gmail sessions verified parsed MIME alternatives, the inline PNG, 76-character Base64 limits, captured/fallback fields, and one DATA terminator; a failed-write case verified connection cleanup. These are host checks, separate from the six ESP32 monitoring tests and real recipient evidence.
 
 ### Compiler and static analysis
 
@@ -513,6 +533,8 @@ Temporary disconnect, retry-injection, and timestamp test code was removed after
 
 <a id="gallery"></a>
 ## <img src="docs/assets/readme/icons/ScanLine.svg" width="24" height="24" alt=""> Recipient delivery gallery
+
+These screenshots show the earlier UTC/plain-text presentation. Real receipt of the new PhST/native layouts remains pending.
 
 These four screenshots show the same Plant-01 event measured at **2026-10-26 05:23:26 UTC**: NORMAL, 45% simulated moisture, 30.0 C, and 72.0% RH. The [matching-event record](docs/results/four-channel-delivery-test.md) includes the serial results and screenshot comparison. Earlier DRY entries visible in Discord and Slack are separate events.
 
@@ -574,7 +596,7 @@ Assignment source: **BCA152 Project No. 1: Smart Plant Monitoring System Using E
 | Real matching delivery evidence | [Four screenshots and serial evidence for one event](docs/results/four-channel-delivery-test.md) | Verified for the adapted channel set |
 | TLS, secrets, timeouts, rate limits | Certificate bundle/date checks; private config; Slack retries | Other-channel handling incomplete; at-rest secrets not hardened |
 | Missing/implausible/invalid/stale data | Driver results, finite/RH/raw checks, monotonic age guard | Numeric injection and physical-fault coverage incomplete |
-| Unit tests: conversion, classification, persistence, formatting | Six classification/confirmation/reset/cooldown cases | Raw conversion and formatting tests absent; no separate hysteresis bands |
+| Unit tests: conversion, classification, persistence, formatting | Six monitoring cases plus offline layout/MIME checks | Raw conversion tests absent; formatting covered offline; no separate hysteresis bands |
 | Integration/reliability/static analysis | Linked experiments, compiler review, Cppcheck | Cppcheck 2.11 recorded; component coverage, endurance, stack/overflow work pending |
 | Reproducible source and safe config | Build guide, manifests, lock file, private/example split | Platform unpinned; clean-clone build not verified in this documentation task |
 | Technical report PDF | [Rendered report](docs/technical-report.pdf), [editable source](docs/technical-report.md), and [rebuild instructions](docs/report-source/README.md) | Prepared and reviewed by the builder; final team/submission review and demonstration remain |
@@ -593,8 +615,9 @@ Start with the [code guide](docs/code-guide.md) for a file-by-file explanation, 
 | `components/sensors/include/sensors.h` | Defines the sample shared by tasks | Acquisition, monitoring, notification snapshots |
 | `components/sensors/sensors.c` | Reads GPIO1 ADC and GPIO2 DHT11; validates measurements | `sensor_task` puts samples in `reading_queue` |
 | `components/monitoring/monitoring.c` | Converts, classifies, confirms, checks per-state cooldown | `monitoring_task` queues eligible transition snapshots |
-| `src/app_tasks.c` | Owns the application queues/tasks and message formatting | `notification_task` calls four senders sequentially |
+| `src/app_tasks.c` | Owns application queues/tasks and a shared event snapshot | `notification_task` calls four senders sequentially |
 | `components/connectivity/connectivity.c` | BLE provisioning, Wi-Fi recovery, SNTP, readiness flags | Acquisition timestamps and sender readiness queries |
+| `components/notifications/notification_format.c` | Shared native layouts, PhST conversion, email HTML and fallbacks | Used by all four senders; tested without networking |
 | `components/notifications/*.c` | Slack/Discord/Telegram HTTPS and Gmail SMTP | External services, then recipient applications |
 | `test/test_monitoring/test_main.c` | Six monitoring logic tests | Unity results; test firmware replaces the application |
 
@@ -613,7 +636,7 @@ Documentation entry points: [guide](docs/README.md), [code guide](docs/code-guid
 ├── dependencies.lock
 ├── src/
 │   ├── main.c                       # Startup only
-│   ├── app_tasks.c                  # Tasks, queues, formatting
+│   ├── app_tasks.c                  # Tasks, queues, captured event data
 │   ├── app_tasks.h
 │   ├── CMakeLists.txt
 │   └── idf_component.yml            # DHT dependency
@@ -625,13 +648,16 @@ Documentation entry points: [guide](docs/README.md), [code guide](docs/code-guid
 │       ├── notifications.c          # Slack and bounded retry policy
 │       ├── discord.c
 │       ├── telegram.c
+│       ├── notification_format.c/.h  # Layouts, PhST, fallbacks
+│       ├── assets/                  # Inline email mark and notice
 │       ├── gmail.c
 │       ├── config.example.h         # Placeholders, tracked
 │       ├── config.local.h           # Private, ignored; create locally
 │       ├── include/notifications.h
 │       ├── CMakeLists.txt
 │       └── idf_component.yml
-├── scripts/refresh_component_cmake.py
+├── scripts/                         # CMake refresh and offline format-test runner
+├── tests/host/                      # Offline formatting/SMTP checks
 ├── test/test_monitoring/test_main.c
 └── docs/
     ├── progress.md
@@ -735,7 +761,7 @@ One run logged advertising error `rc = 30` during cleanup after acceptance/IP ac
 | Freshness | Event age before each sender; queue waiting can produce old messages |
 | Connectivity | Reprovision trigger, prolonged outage and endurance tests |
 | API resilience | Other-channel retry/rate/error handling; Slack parser/failure coverage |
-| Verification | Conversion, formatting, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, custom-component analysis |
+| Verification | Raw conversion, live new-layout receipt, numeric injection, stack margins, queue pressure, sequence gap, certificate rejection, custom-component analysis |
 | Submission | Author review of the completed report and video/live demo |
 
 These items remain visible so a reviewer can separate implementation from proof. Changes need their own reviewed milestones and repeat-test evidence.

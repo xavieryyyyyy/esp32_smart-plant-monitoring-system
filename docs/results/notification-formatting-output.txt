@@ -1,0 +1,27 @@
+PASS phst_uses_captured_time
+PASS phst_crosses_year
+PASS phst_midnight_and_noon
+PASS unknown_clock_is_explicit
+PASS short_time_buffer_is_rejected
+PASS plain_text_has_complete_values
+PASS failed_dht_keeps_measured_time
+PASS invalid_values_are_rejected
+PASS formatting_does_not_publish_truncated_text
+PASS telegram_has_bold_labels_and_html_mode
+PASS slack_has_fields_and_accessible_fallback
+PASS discord_has_embed_and_no_mentions
+PASS gmail_matches_the_design_and_has_time
+PASS all_conditions_keep_their_own_colors
+PASS missing_dht_and_clock_render_on_every_channel
+PASS allocation_failures_leave_no_partial_payload_or_leak
+PASS null_arguments_fail_safely
+17 cases, 0 failures
+PASS Gmail SMTP conversation with partial writes
+PASS Gmail SMTP conversation with partial writes
+PASS Gmail SMTP conversation with partial writes
+PASS Gmail failed-write cleanup
+Timezone independence: UTC0 : 17 cases, 0 failures
+Timezone independence: PST8PDT : 17 cases, 0 failures
+PASS MIME alternatives, inline image, captured time: normal
+PASS MIME alternatives, inline image, captured time: missing-dht
+PASS MIME alternatives, inline image, captured time: unknown-clock

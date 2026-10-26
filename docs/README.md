@@ -1,4 +1,4 @@
-﻿# Documentation guide
+# Documentation guide
 
 **Smart Plant Monitoring System · BCA152 Microcontrollers — B186**<br>
 Yestin John Paraguya · Kenneth Restauro · Regine Bermudo
@@ -24,10 +24,11 @@ Yestin John Paraguya · Kenneth Restauro · Regine Bermudo
 - The real assembly photograph and electrical-net diagram are in the [wiring section](../README.md#wiring).
 - [One matching event](results/four-channel-delivery-test.md) is visible in Gmail, Telegram, Discord, and Slack at 2026-10-26 05:23:26 UTC.
 - [Six monitoring unit tests](results/monitoring-unit-tests.md) passed in the recorded run.
+- [Native layouts, PhST, and email MIME](results/notification-formatting-test.md) have offline coverage; the new rendering has not yet been received on hardware.
 - [Cppcheck 2.11](results/static-analysis.md) was checked again during the 26 October 2026 documentation review; the raw output is preserved.
 - [Cooldown](results/notification-cooldown-test.md), [stale input](results/stale-sample-test.md), [DHT failure](results/dht11-disconnection-test.md), and [device-triggered reconnection](results/wifi-reconnection-test.md) have bounded experimental records.
 
-These facts do not establish every acceptance condition. The potentiometer/DHT11 and Discord/Slack adaptations remain explicit. Unit conversion/formatting tests, wider failure/reliability coverage, and the final demonstration remain incomplete. The [rubric checklist](rubric-checklist.md) separates these gaps from available evidence.
+These facts do not establish every acceptance condition. The potentiometer/DHT11 and Discord/Slack adaptations remain explicit. Raw conversion tests, new-layout hardware receipt, wider failure/reliability coverage, and the final demonstration remain incomplete. The [rubric checklist](rubric-checklist.md) separates these gaps from available evidence.
 
 ## Evidence conventions
 
