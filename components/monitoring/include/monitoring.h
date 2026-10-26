@@ -4,7 +4,9 @@
  * These functions do not read sensors or send Internet messages.
  */
 #pragma once
+/* Use explicit-width integers such as uint32_t and int64_t for counters and timers. */
 #include <stdint.h>
+/* Use bool, true, and false for yes/no values. */
 #include <stdbool.h>
 
 /*
@@ -28,8 +30,13 @@ typedef struct {
 
 /* Convert a valid ADC number from 0..4095 into a simulated percentage. */
 int monitoring_percent(int raw);
+/* Return DRY below 30%, WET above 70%, and NORMAL at every value from 30% through 70%. */
 const char *monitoring_classify(int percent);
 
+/*
+ * Give a new monitor its initial state, three-reading counter, and separate DRY/WET cooldown
+ * history.
+ */
 void monitoring_init(monitoring_t *monitor);
 /* Return true when three matching readings confirm a different state. */
 bool monitoring_update(monitoring_t *monitor, const char *state);
