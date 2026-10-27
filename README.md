@@ -326,16 +326,16 @@ Moisture is simulated using a potentiometer.
 
 | Service | Presentation |
 |---|---|
-| Gmail | Forest header and status badge, prominent simulated percentage, supporting readings, measured time and reason; HTML plus a complete plain-text alternative and an inline plant mark |
+| Gmail | Fluid green card with vertically stacked readings, smaller padding/type on narrow screens, measured time and reason; HTML plus a complete plain-text alternative and an inline plant mark |
 | Telegram | Bold labels, grouped readings and captured PhST time, using HTML parse mode |
-| Slack | Native header/sections and two-column fields, with complete notification/screen-reader fallback text |
-| Discord | Native colored embed, paired reading fields, full-width time/reason, qualification footer, mentions disabled |
+| Slack | Native header and full-width text sections; grouped readings wrap without a two-column field grid, with complete notification/screen-reader fallback text |
+| Discord | Native colored embed with six full-width fields, no blank spacer, qualification footer, and mentions disabled |
 
-The [approved design preview](docs/assets/notifications/design-preview.png) is illustrative. Inter is the preferred email font with Arial/system fallbacks; native chat fonts and exact spacing remain client-controlled. The firmware does not fetch remote fonts or images for the email mark.
+The [approved phone-layout preview](docs/assets/notifications/mobile-design-preview.png) is illustrative; the [earlier design](docs/assets/notifications/design-preview.png) is retained for comparison. Inter is the preferred email font with Arial/system fallbacks; native chat fonts and exact spacing remain client-controlled. The firmware does not fetch remote fonts or images for the email mark.
 
 Measurement Unix time is captured at acquisition start and kept unchanged. A copy is converted to PhST for display without changing the process timezone or monotonic cooldown/freshness timers. Clock-not-synchronized and DHT-unavailable paths retain explicit labels and the `Measured` field. The old failed-DHT timestamp omission is fixed. The serial clock-synchronization log remains UTC.
 
-Plain/Telegram text has a 768-byte limit and HTML a 6144-byte limit. Formatting rejects invalid input and truncation. Initial, alert, and recovery messages still share the generic reason; no periodic summaries are added. See the [offline formatting and MIME test record](docs/results/notification-formatting-test.md). New layout receipt on all four services is pending hardware testing; the gallery below records the earlier UTC/plain-text checkpoint.
+Plain/Telegram text has a 768-byte limit and HTML a 6144-byte limit. Formatting rejects invalid input and truncation. Initial, alert, and recovery messages still share the generic reason; no periodic summaries are added. See the [offline formatting and MIME test record](docs/results/notification-formatting-test.md). The [responsive follow-up](docs/results/responsive-notification-test.md) records 30 browser layouts from 320 to 1280 px, native payload checks, and a passing firmware build. These are offline checks; actual phone/web recipient rendering remains pending. The gallery below records the earlier UTC/plain-text checkpoint.
 
 <a id="wifi"></a>
 ## <img src="docs/assets/readme/icons/Wifi.svg" width="24" height="24" alt=""> Wi-Fi, BLE provisioning, and time

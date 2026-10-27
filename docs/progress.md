@@ -229,6 +229,12 @@ The approved presentation update adds a shared typed event and network-free form
 
 The [offline record](results/notification-formatting-test.md) separates 17 formatting cases, host timezone checks, parsed SMTP/MIME simulations, and successful firmware compilation from pending real receipt. The earlier UTC screenshots are retained unchanged.
 
+## Phone and desktop notification adaptation
+
+The builder approved a stacked-layout preview. Gmail now uses a fluid single-column card with optional narrow-screen padding/type adjustments. Slack uses full-width text sections and Discord uses six non-inline fields without a spacer; Telegram retains its existing wrapping HTML structure. Shared PhST conversion, captured values, monitoring policy, credentials, and transports are unchanged.
+
+The [responsive test record](results/responsive-notification-test.md) separates 30 browser layout cases, 17 passing host cases and SMTP/MIME simulations from pending real phone/web recipient checks. The firmware build passed. No device was uploaded and no provider request was sent during these checks.
+
 ## Remaining work
 
 - Review the README and technical report before submission; complete the

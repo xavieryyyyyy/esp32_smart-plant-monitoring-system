@@ -228,7 +228,7 @@ DRY and WET each have a default fifteen-minute cooldown stored in `monitoring_t`
 
 Each sender receives one captured notification_message_t snapshot. The formatter shows state, simulated moisture, environmental readings, reason, and measured time. It converts a copy of UTC Unix time to twelve-hour PhST (UTC+08:00), leaving the captured timestamp and process timezone unchanged. Failed-DHT and unknown-clock paths retain explicit availability labels and the measured-time field, correcting the earlier omission.
 
-Checked limits are 768 bytes for plain/Telegram text and 6144 for HTML. Gmail uses HTML/plain alternatives and an inline PNG; Telegram uses HTML parsing; Slack uses sections plus fallback text; Discord uses an embed with mentions disabled. Inter is a font preference with client fallbacks. Sequential order remains Slack, Discord, Telegram, Gmail; events have no dispatch-age guard or durable replay.
+Limits are 768 bytes for plain/Telegram and 6144 for HTML. Gmail stacks HTML readings with a plain alternative, inline PNG, and responsive/inline styling. Slack uses full-width sections/fallback text; Discord uses six non-inline fields, no spacer, and disabled mentions. Telegram retains wrapping HTML. Inter has client fallbacks. Dispatch remains Slack, Discord, Telegram, Gmail, without dispatch-age checking or durable replay.
 
 **Table 5. Selected services, transport/authentication, and acceptance checks.**
 
@@ -368,7 +368,7 @@ Seventeen C formatting cases passed using GCC 14.2.0 and real cJSON. They cover 
 
 Three complete offline Gmail sessions used the actual sender source copied beside dummy configuration, fake SMTP replies, and forced seventeen-byte partial writes. Python's MIME parser verified plain/HTML alternatives, the inline PNG, captured or unavailable values, Base64 line limits, and one DATA terminator. A fourth failed-write scenario checked connection cleanup. A review identified the required multipart/related root type parameter; an added assertion failed before the parameter was corrected and passed afterward.
 
-The generated email HTML was inspected in desktop and phone browser widths without horizontal overflow. Firmware compilation succeeded; Cppcheck again reported zero high, zero medium, and the same two low findings in src. No provider was contacted by these tests. New-layout hardware receipt, exact mail/chat-client rendering, and ESP32 stack margins remain unverified. Earlier UTC recipient screenshots remain historical delivery evidence, not proof of this presentation update.
+The responsive follow-up passed 30 browser layout cases at 320, 360, 390, 430, 768, and 1280 pixels, including missing readings/time, all state badges, and an inline-style fallback. The tests check stacked order, essential content, image loading, timestamp bounds, and horizontal overflow. The 17 host cases and simulated SMTP sessions passed again. Firmware compilation succeeded in 42.36 seconds; static RAM was 42,064 bytes and flash 1,349,941 bytes. Earlier Cppcheck results remain a separate checkpoint. No provider was contacted. Actual mail/chat-client rendering, new-layout hardware receipt, and ESP32 stack margins remain unverified; earlier UTC screenshots remain historical evidence.
 
 ## 9. Discussion
 

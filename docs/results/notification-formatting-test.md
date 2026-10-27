@@ -2,6 +2,8 @@
 
 [Results index](README.md) · [Code guide](../code-guide.md) · [Verification plan](../test-plan.md)
 
+The later [responsive follow-up](responsive-notification-test.md) replaces the original paired fields with stacked layouts. This record describes the earlier formatting checkpoint.
+
 ## Scope
 
 Review date: 26 October 2026. This verifies the new shared formatter and email assembly offline. The approved [design preview](../assets/notifications/design-preview.png) contains sample data and is not a recipient screenshot. Existing UTC/plain-text delivery evidence remains unchanged.

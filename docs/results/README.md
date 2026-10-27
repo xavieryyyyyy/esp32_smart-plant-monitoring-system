@@ -8,6 +8,7 @@
 |---|---|---|
 | Shared four-channel event | [Matching delivery](four-channel-delivery-test.md) | Same NORMAL event visible in Gmail, Telegram, Discord, Slack: 2026-10-26 05:23:26 UTC; 45%, 30 C, 72% RH |
 | Message layout/time | [Offline formatting and MIME](notification-formatting-test.md) | 17 formatting cases; default plus two explicit host timezones; three simulated MIME sessions and a write-failure case; real receipt pending |
+| Responsive layout | [Phone/web adaptation](responsive-notification-test.md) | 30 rendered browser cases, stacked native payload checks, and successful build; actual recipient rendering pending |
 | Monitoring logic | [Six-test Unity run](monitoring-unit-tests.md) | Six recorded cases passed; screenshot and baseline retained |
 | Static analysis | [Cppcheck 2.11 record](static-analysis.md), [raw output](static-analysis-output.txt) | Fresh check: 0 high, 0 medium, 2 low; reported component `src` |
 | Cooldown | [Transition test](notification-cooldown-test.md) | Repeated DRY inside cooldown suppressed; NORMAL recovery allowed |
@@ -23,6 +24,7 @@
 | [Matching four-channel delivery](four-channel-delivery-test.md) | Real recipient comparison and serial excerpts | T1, T4, T7 | Single captured event; adapted channel set |
 | [Gmail integration](gmail-delivery-test.md) | Real SMTP and inbox delivery | T6, T7 | SMTP error/retry matrix incomplete |
 | [Native layouts and PhST](notification-formatting-test.md) | Host GCC tests of real formatter and copied Gmail sender with dummy config | T1, T7 / formatting QA | No live new-layout delivery, ESP32 stack margin, or recipient rendering claimed |
+| [Responsive notifications](responsive-notification-test.md) | Actual generated HTML at phone/web widths, native JSON checks, copied-sender MIME tests | T1, T7 / formatting QA | Browser/native payload proof is not recipient-app or hardware evidence |
 | [Monitoring unit tests](monitoring-unit-tests.md) | Unity on ESP32-S3 | T4 plus logic QA | Conversion/formatting/numeric validation not covered |
 | [Cooldown](notification-cooldown-test.md) | Hardware transitions plus separate synthetic-time tests | T4 | Starts at queue acceptance; resets on reboot |
 | [Sensor validation regression](sensor-validation-test.md) | Normal hardware regression and intermittent DHT errors | T1, T3 | Invalid-number rejection not injected |
